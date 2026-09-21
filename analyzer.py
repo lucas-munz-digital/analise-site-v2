@@ -38,13 +38,16 @@ OPPORTUNITIES_MAP = {
 # 1. PAGESPEED
 # ---------------------------------------------------------------------------
 def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> dict:
-    """Chama a API do Google PageSpeed Insights com fallback de nova tentativa e suporte a PT-BR."""
+    """Chama a API do Google PageSpeed Insights com resiliência contra erros internos do Lighthouse."""
     api_key = api_key or os.environ.get("PAGESPEED_API_KEY") or DEFAULT_PAGESPEED_API_KEY
     
+    # Para mobile, usamos apenas a categoria performance para evitar estouro de memória no Lighthouse do Google
+    categories = ["performance"] if strategy == "mobile" else ["performance", "seo"]
+
     params = {
         "url": url, 
         "strategy": strategy, 
-        "category": ["performance", "accessibility", "best-practices", "seo"],
+        "category": categories,
         "locale": "pt_BR"
     }
     if api_key:
@@ -53,9 +56,15 @@ def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> di
     data = None
     last_error = ""
 
+    # Tentativa 1: Com locale pt_BR
+    # Tentativa 2: Fallback sem locale (resolve o erro 'Something went wrong' em sites pesados no Mobile)
     for attempt in range(2):
         try:
-            resp = requests.get(PAGESPEED_API, params=params, timeout=TIMEOUT_PAGESPEED)
+            current_params = params.copy()
+            if attempt == 1:
+                current_params.pop("locale", None) # Remove locale na 2ª tentativa se o Google falhou
+
+            resp = requests.get(PAGESPEED_API, params=current_params, timeout=TIMEOUT_PAGESPEED)
             resp.raise_for_status()
             res_json = resp.json()
             
@@ -77,7 +86,7 @@ def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> di
         except Exception as e:
             last_error = str(e)
 
-        time.sleep(2)
+        time.sleep(1)
 
     if not data:
         return {"error": last_error or "Não foi possível obter dados do Google PageSpeed."}
