@@ -114,17 +114,20 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
     # Formulários
     story.append(Paragraph("Formulários e Conversão", STYLES["H2c"]))
     if not forms_data["forms"]:
-        story.append(Paragraph("Nenhum formulário &lt;form&gt; foi encontrado no HTML estático da página.", STYLES["Body"]))
-    for f in forms_data["forms"]:
-        story.append(Paragraph(f"<b>Formulário #{f['id']}</b> — {f['num_campos']} campo(s): {', '.join(f['fields']) or '-'}", STYLES["Body"]))
-        story.append(Paragraph(f"Destino: {f['destino']} → <font size=8>{f['action']}</font>", STYLES["Small"]))
-        if not f.get("has_thank_you_page"):
-            story.extend(_issue_block(
-                f"Formulário #{f['id']} sem Página de Agradecimento",
-                "medio",
-                f"Página de agradecimento não encontrada no formulário #{f['id']}. Isto não impossibilita o tracking do formulário, porém implica na criação de soluções que estão sujeitas a maior taxa de erro de contabilização. (form_submit, click_text, etc)"
-            ))
-        story.append(Spacer(1, 8))
+        story.append(Paragraph("Nenhum formulário estático ou script de automação foi encontrado no HTML base da página.", STYLES["Body"]))
+    else:
+        for f in forms_data["forms"]:
+            tipo_label = f.get("tipo", "Formulário")
+            story.append(Paragraph(f"<b>Formulário #{f['id']} ({tipo_label})</b> — {f['num_campos']} campo(s): {', '.join(f['fields']) or '-'}", STYLES["Body"]))
+            story.append(Paragraph(f"Destino: {f['destino']} → <font size=8>{f['action']}</font>", STYLES["Small"]))
+            
+            if not f.get("has_thank_you_page"):
+                story.extend(_issue_block(
+                    f"Formulário #{f['id']} sem Página de Agradecimento",
+                    "medio",
+                    f"Página de agradecimento não encontrada no formulário #{f['id']}. Isto não impossibilita o tracking do formulário, porém implica na criação de soluções que estão sujeitas a maior taxa de erro de contabilização. (form_submit, click_text, etc)"
+                ))
+            story.append(Spacer(1, 8))
 
     # Links Quebrados
     if broken_links:
