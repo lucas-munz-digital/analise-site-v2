@@ -10,7 +10,7 @@ from urllib.parse import urljoin, urlparse
 
 PAGESPEED_API = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 GTM_JS_URL = "https://www.googletagmanager.com/gtm.js"
-TIMEOUT_PAGESPEED = 35  # Timeout individual equilibrado para evitar travamento da requisição HTTP
+TIMEOUT_PAGESPEED = 60  # 60 segundos para dar margem suficiente ao Lighthouse do Google
 TIMEOUT_HTTP = 20
 UA_HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -26,14 +26,14 @@ DEFAULT_PAGESPEED_API_KEY = "AIzaSyBuvA0OE36shPYEkoGY886S-Lii6Tb8INk"
 # 1. PAGESPEED
 # ---------------------------------------------------------------------------
 def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> dict:
-    """Chama a API do Google PageSpeed Insights com limites de tempo seguros."""
+    """Chama a API do Google PageSpeed Insights com limites de tempo e categorias otimizados."""
     api_key = api_key or os.environ.get("PAGESPEED_API_KEY") or DEFAULT_PAGESPEED_API_KEY
     
-    # Executa apenas as categorias essenciais para acelerar o retorno do Google
+    # Solicita categorias essenciais para acelerar o retorno do Lighthouse
     params = {
         "url": url, 
         "strategy": strategy, 
-        "category": ["performance", "accessibility", "best-practices", "seo"]
+        "category": ["performance", "seo"]
     }
     if api_key:
         params["key"] = api_key
@@ -43,7 +43,7 @@ def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> di
         resp.raise_for_status()
         data = resp.json()
     except requests.exceptions.Timeout:
-        return {"error": f"Tempo limite excedido ({TIMEOUT_PAGESPEED}s). A API do Google demorou muito a responder."}
+        return {"error": f"Tempo limite excedido ({TIMEOUT_PAGESPEED}s). A API do Google demorou muito a responder para o modo {strategy}."}
     except requests.exceptions.HTTPError as e:
         if e.response is not None and e.response.status_code == 429:
             return {"error": "Cota da API do PageSpeed excedida (erro 429)."}
@@ -135,12 +135,13 @@ def fetch_gtm_containers_content(html: str) -> str:
 # 3. TAGS E SCRIPTS
 # ---------------------------------------------------------------------------
 def detect_tags(html: str, gtm_js_content: str = "") -> dict:
-    """Detecta tags de rastreamento."""
+    """Detecta tags de rastreamento no HTML e dentro de containers GTM."""
     combined = html + "\n" + gtm_js_content
 
     ga4_html_only = set(re.findall(r"\bG-[A-Z0-9]{6,}\b", html))
     ads_html_only = set(re.findall(r"\bAW-[0-9]{5,}\b", html))
 
+    # Captura IDs do Meta Pixel em fbq('init', 'ID'), escapados ou em URLs fbevents.js
     pixel_matches = re.findall(r"fbq\(\\?['\"]init\\?['\"],\s*\\?['\"](\d{13,16})\\?['\"]", combined)
     pixel_matches += re.findall(r"id=(\d{13,16})", combined)
 
