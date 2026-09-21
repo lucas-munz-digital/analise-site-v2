@@ -10,7 +10,7 @@ from urllib.parse import urljoin, urlparse
 
 PAGESPEED_API = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 GTM_JS_URL = "https://www.googletagmanager.com/gtm.js"
-TIMEOUT = 45
+TIMEOUT = 90  # Aumentado para 90s para evitar Read Timeout na API do PageSpeed
 UA_HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
@@ -111,14 +111,7 @@ def fetch_html(url: str) -> str:
 
 
 def fetch_gtm_containers_content(html: str) -> str:
-    """Baixa o conteúdo publicado (gtm.js) de cada container GTM encontrado no HTML.
-
-    Necessário porque tags como Google Ads, conversões e até GA4 costumam ser
-    configuradas DENTRO do container do GTM (via variáveis/gatilhos), e não
-    aparecem soltas no HTML estático da página - por isso ferramentas que só
-    leem o HTML (como a versão anterior deste script) reportam "não encontrado"
-    mesmo quando a tag existe e dispara normalmente no navegador.
-    """
+    """Baixa o conteúdo publicado (gtm.js) de cada container GTM encontrado no HTML."""
     gtm_ids = sorted(set(re.findall(r"GTM-[A-Z0-9]+", html)))
     chunks = []
     for gtm_id in gtm_ids:
@@ -135,27 +128,26 @@ def fetch_gtm_containers_content(html: str) -> str:
 # 3. TAGS E SCRIPTS
 # ---------------------------------------------------------------------------
 def detect_tags(html: str, gtm_js_content: str = "") -> dict:
-    """Detecta tags de rastreamento.
-
-    Escaneia o HTML estático E o conteúdo publicado dos containers GTM (quando
-    fornecido via gtm_js_content, ver fetch_gtm_containers_content) - isso é o
-    que permite achar tags de Google Ads/GA4 configuradas dentro do GTM, que
-    não aparecem soltas no HTML da página.
-    """
+    """Detecta tags de rastreamento."""
     combined = html + "\n" + gtm_js_content
 
     ga4_html_only = set(re.findall(r"\bG-[A-Z0-9]{6,}\b", html))
     ads_html_only = set(re.findall(r"\bAW-[0-9]{5,}\b", html))
 
+    # Regex aprimorado para capturar IDs do Meta Pixel (fbq init ou fbevents.js, incluindo dentro do GTM minificado)
+    pixel_matches = re.findall(r"fbq\(\\?['\"]init\\?['\"],\s*\\?['\"](\d{13,16})\\?['\"]", combined)
+    pixel_matches += re.findall(r"id=(\d{13,16})", combined)  # Captura URLs de fbevents / noscript pixel
+
+    meta_pixels = sorted(set(pixel_matches))
+
     findings = {
         "gtm_containers": sorted(set(re.findall(r"GTM-[A-Z0-9]+", html))),
         "ga4_properties": sorted(set(re.findall(r"\bG-[A-Z0-9]{6,}\b", combined))),
         "google_ads_ids": sorted(set(re.findall(r"\bAW-[0-9]{5,}\b", combined))),
-        "meta_pixel_ids": sorted(set(re.findall(r"fbq\(['\"]init['\"],\s*['\"](\d+)['\"]", combined))),
+        "meta_pixel_ids": meta_pixels,
         "gtag_ids": sorted(set(re.findall(r"\bGT-[A-Z0-9]+\b", combined))),
     }
-    # sinaliza quais tags só foram encontradas por causa da leitura do GTM
-    # (informação útil: mostra que a checagem não ficou restrita ao HTML estático)
+
     findings["ga4_only_via_gtm"] = sorted(set(findings["ga4_properties"]) - ga4_html_only)
     findings["google_ads_only_via_gtm"] = sorted(set(findings["google_ads_ids"]) - ads_html_only)
 
@@ -167,9 +159,9 @@ def detect_tags(html: str, gtm_js_content: str = "") -> dict:
         issues.append(f"Mais de uma propriedade GA4 encontrada ({', '.join(findings['ga4_properties'])}) — verificar qual é a ativa.")
     if total_ads_conversions >= 3:
         issues.append(f"{total_ads_conversions} IDs de Google Ads disparando simultaneamente — recomenda-se mapear origem e remover inativos.")
-    if not findings["gtm_containers"] and not findings["ga4_properties"] and not findings["google_ads_ids"]:
+    if not findings["gtm_containers"] and not findings["ga4_properties"] and not findings["google_ads_ids"] and not findings["meta_pixel_ids"]:
         detail = " (nenhum container GTM encontrado para checar tags internas)" if not gtm_js_content else ""
-        issues.append(f"Nenhuma tag de rastreamento (GTM/GA4/Google Ads) foi detectada{detail}.")
+        issues.append(f"Nenhuma tag de rastreamento (GTM/GA4/Google Ads/Meta) foi detectada{detail}.")
     findings["issues"] = issues
     return findings
 
@@ -208,7 +200,6 @@ def detect_forms(html: str, base_url: str) -> list:
             "num_campos": len(fields),
         })
 
-    # botões que apontam para o mesmo destino (ex.: mesma âncora #form)
     ctas = [a.get("href") for a in soup.find_all("a", href=True) if any(w in (a.get_text() or "").lower() for w in
             ["orçamento", "cotação", "contrat", "solicit", "comprar", "fale conosco", "saiba mais"])]
     duplicated_ctas = {href for href in ctas if ctas.count(href) > 1 and href not in ("#", "")}
@@ -247,7 +238,6 @@ def detect_usability_issues(html: str, base_url: str) -> list:
     if not soup.find("link", attrs={"rel": re.compile("icon", re.I)}):
         issues.append(("baixo", "Favicon não encontrado."))
 
-    # contadores/estatísticas que começam zerados e dependem de JS (padrão comum em heros)
     if re.search(r'data-count(er)?=["\']?\d+', html, re.I) or re.search(r'class=["\'][^"\']*counter[^"\']*["\']', html, re.I):
         issues.append(("baixo", "Foram encontrados elementos de contador animado (counters) — validar manualmente se carregam com valor final visível caso o JS falhe."))
 
