@@ -1,150 +1,140 @@
 """
-Gera o preview HTML do relatório com bandeiras de desempenho, links quebrados e avisos de formulário.
+Gera o PDF final do relatório a partir dos dados coletados pelo analyzer.py
 """
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import cm
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_LEFT
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable
+)
+from reportlab.lib import colors
 from datetime import datetime
 
+RED = colors.HexColor("#E03131")
+YELLOW = colors.HexColor("#F5B800")
+GRAY = colors.HexColor("#4A4A48")
+DARK = colors.HexColor("#1A1A1A")
+GREEN = colors.HexColor("#2F9E44")
 
-def build_html_report(cliente: str, url: str, is_ecommerce: bool,
-                       pagespeed_mobile: dict, pagespeed_desktop: dict,
-                       tags: dict, forms_data: dict, usability_issues: list,
-                       broken_links: list = None) -> str:
+STYLES = getSampleStyleSheet()
+STYLES.add(ParagraphStyle("H1c", parent=STYLES["Heading1"], fontSize=20, textColor=DARK, spaceAfter=4))
+STYLES.add(ParagraphStyle("H2c", parent=STYLES["Heading2"], fontSize=14, textColor=DARK, spaceBefore=10, spaceAfter=6))
+STYLES.add(ParagraphStyle("Body", parent=STYLES["Normal"], fontSize=10.5, leading=15, textColor=DARK, alignment=TA_LEFT))
+STYLES.add(ParagraphStyle("Small", parent=STYLES["Normal"], fontSize=9, leading=13, textColor=GRAY))
+STYLES.add(ParagraphStyle("Tag", parent=STYLES["Normal"], fontSize=9, textColor=colors.white))
 
-    def get_score_class(score):
-        if score is None:
-            return "neutral"
-        if score >= 90:
-            return "good"
-        if score >= 80:
-            return "average"
-        return "poor"
 
-    def render_pagespeed_block(title, data):
+def _severity_color(sev):
+    return {"critico": RED, "medio": YELLOW, "baixo": colors.HexColor("#868E96")}.get(sev, GRAY)
+
+
+def _severity_label(sev):
+    return {"critico": "ATENÇÃO IMEDIATA", "medio": "MÉDIO/LONGO PRAZO", "baixo": "OBSERVAÇÃO"}.get(sev, "")
+
+
+def _issue_block(title, sev, text):
+    color = _severity_color(sev)
+    tag = Table([[Paragraph(f"<b>{_severity_label(sev)}</b>", STYLES["Tag"])]], colWidths=[4.5 * cm])
+    tag.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), color),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    return [
+        tag,
+        Spacer(1, 4),
+        Paragraph(f"<b>{title}</b>", STYLES["H2c"]),
+        Paragraph(text, STYLES["Body"]),
+        Spacer(1, 10),
+    ]
+
+
+def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
+              pagespeed_mobile: dict, pagespeed_desktop: dict, tags: dict,
+              forms_data: dict, usability_issues: list, broken_links: list = None):
+
+    doc = SimpleDocTemplate(output_path, pagesize=A4,
+                             topMargin=2 * cm, bottomMargin=2 * cm,
+                             leftMargin=2 * cm, rightMargin=2 * cm)
+    story = []
+
+    # Capa
+    story.append(Spacer(1, 4 * cm))
+    story.append(Paragraph("Análise Técnica do Site", STYLES["H1c"]))
+    story.append(Paragraph(cliente, ParagraphStyle("sub", parent=STYLES["Body"], fontSize=14, textColor=GRAY)))
+    story.append(Spacer(1, 0.5 * cm))
+    story.append(Paragraph(url, STYLES["Small"]))
+    story.append(Paragraph(datetime.now().strftime("Gerado em %d/%m/%Y às %H:%M"), STYLES["Small"]))
+    story.append(PageBreak())
+
+    # PageSpeed
+    for label, data in [("Mobile", pagespeed_mobile), ("Desktop", pagespeed_desktop)]:
+        story.append(Paragraph(f"Desempenho do Site — {label}", STYLES["H2c"]))
         if "error" in data:
-            return f'<div class="error-box"><b>{title}:</b> Não foi possível obter dados ({data["error"]})</div>'
-        
-        scores = data.get("scores", {})
-        vitals = data.get("vitals", {})
-        opportunities = data.get("opportunities", [])
-        interp = data.get("interpretation", {})
+            story.append(Paragraph(f"Não foi possível obter os dados: {data['error']}", STYLES["Body"]))
+        else:
+            interp = data.get("interpretation", {})
+            if interp.get("level") == "red":
+                story.extend(_issue_block("Atenção no Desempenho", "critico", interp["text"]))
+            elif interp.get("level") == "orange":
+                story.extend(_issue_block("Oportunidade de Melhoria", "medio", interp["text"]))
+            elif interp.get("level") == "none":
+                story.append(Paragraph(f"<b>Status:</b> {interp['text']}", STYLES["Body"]))
+                story.append(Spacer(1, 6))
 
-        html = f'<h3>Desempenho — {title}</h3>'
-        
-        # Renderização do aviso de interpretação (Vermelho, Laranja ou Sem Bandeira)
-        if interp.get("level") == "red":
-            html += f'<div class="issue-card critical"><b>ATENÇÃO:</b> {interp["text"]}</div>'
-        elif interp.get("level") == "orange":
-            html += f'<div class="issue-card warning"><b>OBSERVAÇÃO:</b> {interp["text"]}</div>'
-        elif interp.get("level") == "none":
-            html += f'<div class="issue-card info"><b>INFO:</b> {interp["text"]}</div>'
-
-        html += '<div class="scores-grid">'
-        for label, key in [("Performance", "performance"), ("SEO", "seo")]:
-            val = scores.get(key, "-")
-            cls = get_score_class(val)
-            html += f'<div class="score-card {cls}"><span class="score-val">{val}</span><span class="score-lbl">{label}</span></div>'
-        html += '</div>'
-
-        html += '<table class="data-table"><thead><tr><th>Métrica (Core Web Vitals)</th><th>Valor</th></tr></thead><tbody>'
-        for k, v in [("First Contentful Paint (FCP)", vitals.get("fcp")),
-                     ("Largest Contentful Paint (LCP)", vitals.get("lcp")),
-                     ("Total Blocking Time (TBT)", vitals.get("tbt")),
-                     ("Cumulative Layout Shift (CLS)", vitals.get("cls")),
-                     ("Speed Index", vitals.get("speed_index"))]:
-            html += f'<tr><td>{k}</td><td><b>{v or "-"}</b></td></tr>'
-        html += '</tbody></table>'
-
-        if opportunities:
-            html += '<p><b>Principais Oportunidades de Melhoria:</b></p><ul>'
-            for opp in opportunities:
-                saving = f' (economia de ~{round(opp["savings_ms"]/1000, 1)}s)' if opp.get("savings_ms") else ''
-                html += f'<li>{opp["title"]}{saving}</li>'
-            html += '</ul>'
-        return html
+            if data["opportunities"]:
+                story.append(Paragraph("<b>Principais oportunidades de melhoria:</b>", STYLES["Body"]))
+                for opp in data["opportunities"]:
+                    saving = f" (economia estimada de {round(opp['savings_ms']/1000, 1)}s)" if opp["savings_ms"] else ""
+                    story.append(Paragraph(f"• {opp['title']}{saving}", STYLES["Small"]))
+        story.append(Spacer(1, 14))
+    story.append(PageBreak())
 
     # Tags
-    tags_html = '<h3>Tags e Scripts de Rastreamento</h3><table class="data-table"><tbody>'
-    for name, key in [("GTM", "gtm_containers"), ("GA4", "ga4_properties"),
-                      ("Google Ads", "google_ads_ids"), ("Meta Pixel", "meta_pixel_ids")]:
-        items = tags.get(key, [])
-        val = ", ".join(items) if items else "não encontrado"
-        tags_html += f'<tr><td><b>{name}</b></td><td>{val}</td></tr>'
-    tags_html += '</tbody></table>'
+    story.append(Paragraph("Tags e Scripts de Rastreamento", STYLES["H2c"]))
+    rows = [
+        ["GTM", ", ".join(tags["gtm_containers"]) or "não encontrado"],
+        ["GA4", ", ".join(tags["ga4_properties"]) or "não encontrado"],
+        ["Google Ads", ", ".join(tags["google_ads_ids"]) or "não encontrado"],
+        ["Meta Pixel", ", ".join(tags["meta_pixel_ids"]) or "não encontrado"],
+    ]
+    tt = Table(rows, colWidths=[4 * cm, 12 * cm])
+    tt.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.5, colors.HexColor("#EEEEEE")),
+    ]))
+    story.append(tt)
+    story.append(Spacer(1, 10))
 
-    if tags.get("issues"):
-        for issue in tags["issues"]:
-            tags_html += f'<div class="issue-card critical"><b>Achado:</b> {issue}</div>'
-
-    # Formulários e Thank You Pages
-    forms_html = '<h3>Formulários e Conversão</h3>'
-    if not forms_data.get("forms"):
-        forms_html += '<p>Nenhum formulário &lt;form&gt; detectado no HTML estático.</p>'
-    else:
-        for f in forms_data["forms"]:
-            forms_html += f'''<div class="form-box">
-                <b>Formulário #{f["id"]}</b> ({f["num_campos"]} campos): {", ".join(f["fields"]) or "-"}<br>
-                <small>Destino: <b>{f["destino"]}</b> → {f["action"]}</small>
-            </div>'''
-            
-            # Texto exato solicitado para ausência de Thank You Page
-            if not f.get("has_thank_you_page"):
-                forms_html += f'''<div class="issue-card warning">
-                Página de agradecimento não encontrada no formulário #{f["id"]}. Isto não impossibilita o tracking do formulário, porém implica na criação de soluções que estão sujeitas a maior taxa de erro de contabilização. (form_submit, click_text, etc)
-                </div>'''
+    # Formulários
+    story.append(Paragraph("Formulários e Conversão", STYLES["H2c"]))
+    if not forms_data["forms"]:
+        story.append(Paragraph("Nenhum formulário &lt;form&gt; foi encontrado no HTML estático da página.", STYLES["Body"]))
+    for f in forms_data["forms"]:
+        story.append(Paragraph(f"<b>Formulário #{f['id']}</b> — {f['num_campos']} campo(s): {', '.join(f['fields']) or '-'}", STYLES["Body"]))
+        story.append(Paragraph(f"Destino: {f['destino']} → <font size=8>{f['action']}</font>", STYLES["Small"]))
+        if not f.get("has_thank_you_page"):
+            story.extend(_issue_block(
+                f"Formulário #{f['id']} sem Página de Agradecimento",
+                "medio",
+                f"Página de agradecimento não encontrada no formulário #{f['id']}. Isto não impossibilita o tracking do formulário, porém implica na criação de soluções que estão sujeitas a maior taxa de erro de contabilização. (form_submit, click_text, etc)"
+            ))
+        story.append(Spacer(1, 8))
 
     # Links Quebrados
-    broken_html = ''
     if broken_links:
-        broken_html = '<h3>Links Quebrados Detectados</h3>'
+        story.append(Paragraph("Links Quebrados Detectados", STYLES["H2c"]))
         for bl in broken_links:
-            broken_html += f'<div class="issue-card critical"><b>Link Indisponível (Erro {bl["status"]}):</b> {bl["url"]}</div>'
+            story.extend(_issue_block("Link Indisponível", "critico", f"URL quebrada ({bl['status']}): {bl['url']}"))
 
     # Usabilidade
-    usability_html = '<h3>Usabilidade e Design</h3>'
-    if not usability_issues:
-        usability_html += '<p>Nenhum problema crítico identificado nas checagens automáticas.</p>'
-    else:
-        for sev, text in usability_issues:
-            cls = "critical" if sev == "critico" else ("warning" if sev == "medio" else "info")
-            usability_html += f'<div class="issue-card {cls}"><b>[{sev.upper()}]</b> {text}</div>'
+    story.append(Paragraph("Usabilidade e Design (checagem automática)", STYLES["H2c"]))
+    for sev, text in usability_issues:
+        story.extend(_issue_block("Achado", sev, text))
 
-    now_str = datetime.now().strftime("%d/%m/%Y às %H:%M")
-
-    return f"""<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1A1A1A; padding: 20px; background: #FAFAFA; }}
-    .container {{ max-width: 800px; margin: 0 auto; background: #FFF; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }}
-    h1 {{ font-size: 24px; margin-bottom: 4px; color: #111; }}
-    .subtitle {{ color: #666; font-size: 14px; margin-bottom: 20px; }}
-    h3 {{ font-size: 18px; border-bottom: 2px solid #EEE; padding-bottom: 6px; margin-top: 28px; }}
-    .scores-grid {{ display: flex; gap: 12px; margin-bottom: 16px; margin-top: 10px; }}
-    .score-card {{ flex: 1; text-align: center; padding: 12px; border-radius: 6px; background: #F8F9FA; border: 1px solid #E9ECEF; }}
-    .score-val {{ display: block; font-size: 26px; font-weight: bold; }}
-    .score-lbl {{ font-size: 12px; color: #666; }}
-    .good {{ color: #2F9E44; }} .average {{ color: #F5B800; }} .poor {{ color: #E03131; }} .neutral {{ color: #868E96; }}
-    .data-table {{ width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }}
-    .data-table th, .data-table td {{ padding: 8px 12px; text-align: left; border-bottom: 1px solid #EEE; }}
-    .data-table th {{ background: #F8F9FA; color: #555; }}
-    .issue-card {{ padding: 10px 14px; border-radius: 6px; margin: 8px 0; font-size: 13.5px; line-height: 1.4; }}
-    .critical {{ background: #FFF5F5; border-left: 4px solid #E03131; color: #C92A2A; }}
-    .warning {{ background: #FFF9DB; border-left: 4px solid #F5B800; color: #B58100; }}
-    .info {{ background: #F1F3F5; border-left: 4px solid #868E96; color: #495057; }}
-    .form-box {{ background: #F8F9FA; padding: 10px; border-radius: 6px; margin-bottom: 6px; font-size: 13.5px; }}
-    .error-box {{ background: #FFF5F5; color: #C92A2A; padding: 10px; border-radius: 6px; margin: 10px 0; }}
-</style>
-</head>
-<body>
-<div class="container">
-    <h1>Análise Técnica: {cliente}</h1>
-    <div class="subtitle"><a href="{url}" target="_blank">{url}</a> | Gerado em {now_str}</div>
-    {render_pagespeed_block("Mobile", pagespeed_mobile)}
-    {render_pagespeed_block("Desktop", pagespeed_desktop)}
-    {tags_html}
-    {forms_html}
-    {broken_html}
-    {usability_html}
-</div>
-</body>
-</html>"""
+    doc.build(story)
