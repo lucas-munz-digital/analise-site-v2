@@ -40,15 +40,21 @@ if submitted:
 
     url = url_input if url_input.startswith("http") else f"https://{url_input}"
 
+    # Avisa o usuário sobre o tempo estimado da auditoria
+    st.info("⏱️ **Tempo estimado:** A análise do PageSpeed pelo Google costuma levar entre **1 a 2 minutos**. Por favor, aguarde sem fechar a página.")
+
     progress = st.progress(0, text="Iniciando análise...")
 
-    progress.progress(10, text="Consultando PageSpeed (mobile)...")
+    # [1/4] PageSpeed Mobile
+    progress.progress(10, text="⏳ [1/4] Consultando PageSpeed Mobile no Google (pode levar até 60s)...")
     ps_mobile = get_pagespeed(url, "mobile", api_key=PAGESPEED_API_KEY)
 
-    progress.progress(35, text="Consultando PageSpeed (desktop)...")
+    # [2/4] PageSpeed Desktop
+    progress.progress(45, text="⏳ [2/4] Consultando PageSpeed Desktop no Google (pode levar até 60s)...")
     ps_desktop = get_pagespeed(url, "desktop", api_key=PAGESPEED_API_KEY)
 
-    progress.progress(60, text="Baixando HTML e analisando tags/formulários...")
+    # [3/4] Download do HTML e tags
+    progress.progress(80, text="🔍 [3/4] Baixando HTML do site e auditando tags GTM/GA4/Pixel...")
     try:
         html = fetch_html(url)
         html_ok = True
@@ -67,7 +73,8 @@ if submitted:
         forms_data = {"forms": [], "duplicated_cta_targets": []}
         usability_issues = []
 
-    progress.progress(85, text="Gerando visualização HTML e PDF...")
+    # [4/4] Gerando relatórios
+    progress.progress(95, text="📄 [4/4] Montando visualização na tela e PDF...")
     
     # 1. Gera HTML para Preview
     html_report = build_html_report(
@@ -88,7 +95,7 @@ if submitted:
 
     st.success("Análise concluída com sucesso!")
 
-    # Botão de Download do PDF em destaque no topo do resultado
+    # Botão de Download do PDF
     slug = re.sub(r"[^\w\s-]", "", cliente).strip().lower()
     slug = re.sub(r"[\s]+", "-", slug)
     
@@ -102,5 +109,4 @@ if submitted:
     )
 
     st.subheader("📋 Preview do Relatório")
-    # Renderiza a página HTML dentro de um container com scroll no Streamlit
     components.html(html_report, height=800, scrolling=True)
