@@ -10,7 +10,8 @@ from urllib.parse import urljoin, urlparse
 
 PAGESPEED_API = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 GTM_JS_URL = "https://www.googletagmanager.com/gtm.js"
-TIMEOUT = 90  # Aumentado para 90s para evitar Read Timeout na API do PageSpeed
+TIMEOUT_PAGESPEED = 35  # Timeout individual equilibrado para evitar travamento da requisição HTTP
+TIMEOUT_HTTP = 20
 UA_HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
@@ -25,37 +26,45 @@ DEFAULT_PAGESPEED_API_KEY = "AIzaSyBuvA0OE36shPYEkoGY886S-Lii6Tb8INk"
 # 1. PAGESPEED
 # ---------------------------------------------------------------------------
 def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> dict:
-    """Chama a API do Google PageSpeed Insights.
-
-    Usa por padrão a chave de API embutida caso não seja informada via parâmetro
-    ou variável de ambiente.
-    """
+    """Chama a API do Google PageSpeed Insights com limites de tempo seguros."""
     api_key = api_key or os.environ.get("PAGESPEED_API_KEY") or DEFAULT_PAGESPEED_API_KEY
-    params = {"url": url, "strategy": strategy, "category": ["performance", "accessibility", "best-practices", "seo"]}
+    
+    # Executa apenas as categorias essenciais para acelerar o retorno do Google
+    params = {
+        "url": url, 
+        "strategy": strategy, 
+        "category": ["performance", "accessibility", "best-practices", "seo"]
+    }
     if api_key:
         params["key"] = api_key
+
     try:
-        resp = requests.get(PAGESPEED_API, params=params, timeout=TIMEOUT)
+        resp = requests.get(PAGESPEED_API, params=params, timeout=TIMEOUT_PAGESPEED)
         resp.raise_for_status()
         data = resp.json()
+    except requests.exceptions.Timeout:
+        return {"error": f"Tempo limite excedido ({TIMEOUT_PAGESPEED}s). A API do Google demorou muito a responder."}
     except requests.exceptions.HTTPError as e:
         if e.response is not None and e.response.status_code == 429:
-            return {"error": "Cota da API do PageSpeed excedida (erro 429). "
-                              "Configure uma chave de API gratuita para aumentar o limite — veja o README.md."}
+            return {"error": "Cota da API do PageSpeed excedida (erro 429)."}
         try:
             data = e.response.json()
-            return {"error": data.get("error", {}).get("message", str(e))}
+            err_msg = data.get("error", {}).get("message", str(e))
+            return {"error": err_msg}
         except Exception:
             return {"error": str(e)}
     except Exception as e:
         return {"error": str(e)}
 
     if "error" in data:
-        return {"error": data["error"].get("message", "Erro desconhecido")}
+        return {"error": data["error"].get("message", "Erro desconhecido na API")}
 
-    lh = data["lighthouseResult"]
-    cats = lh["categories"]
-    audits = lh["audits"]
+    lh = data.get("lighthouseResult", {})
+    if not lh:
+        return {"error": "Servidor do Google não retornou resultados do Lighthouse."}
+
+    cats = lh.get("categories", {})
+    audits = lh.get("audits", {})
 
     def score(cat):
         try:
@@ -63,14 +72,12 @@ def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> di
         except (KeyError, TypeError):
             return None
 
-    def metric(key, suffix=""):
+    def metric(key):
         try:
-            val = audits[key]["displayValue"]
-            return val
+            return audits[key]["displayValue"]
         except KeyError:
             return "-"
 
-    # oportunidades (economia de tempo) ordenadas pelas piores primeiro
     opportunities = []
     for key, audit in audits.items():
         if audit.get("score") is not None and audit["score"] < 1 and "details" in audit and audit["details"].get("type") == "opportunity":
@@ -105,7 +112,7 @@ def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> di
 # ---------------------------------------------------------------------------
 def fetch_html(url: str) -> str:
     headers = {**UA_HEADERS, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
-    resp = requests.get(url, headers=headers, timeout=TIMEOUT, allow_redirects=True)
+    resp = requests.get(url, headers=headers, timeout=TIMEOUT_HTTP, allow_redirects=True)
     resp.raise_for_status()
     return resp.text
 
@@ -116,7 +123,7 @@ def fetch_gtm_containers_content(html: str) -> str:
     chunks = []
     for gtm_id in gtm_ids:
         try:
-            resp = requests.get(GTM_JS_URL, params={"id": gtm_id}, headers=UA_HEADERS, timeout=TIMEOUT)
+            resp = requests.get(GTM_JS_URL, params={"id": gtm_id}, headers=UA_HEADERS, timeout=TIMEOUT_HTTP)
             if resp.ok:
                 chunks.append(resp.text)
         except Exception:
@@ -134,9 +141,8 @@ def detect_tags(html: str, gtm_js_content: str = "") -> dict:
     ga4_html_only = set(re.findall(r"\bG-[A-Z0-9]{6,}\b", html))
     ads_html_only = set(re.findall(r"\bAW-[0-9]{5,}\b", html))
 
-    # Regex aprimorado para capturar IDs do Meta Pixel (fbq init ou fbevents.js, incluindo dentro do GTM minificado)
     pixel_matches = re.findall(r"fbq\(\\?['\"]init\\?['\"],\s*\\?['\"](\d{13,16})\\?['\"]", combined)
-    pixel_matches += re.findall(r"id=(\d{13,16})", combined)  # Captura URLs de fbevents / noscript pixel
+    pixel_matches += re.findall(r"id=(\d{13,16})", combined)
 
     meta_pixels = sorted(set(pixel_matches))
 
