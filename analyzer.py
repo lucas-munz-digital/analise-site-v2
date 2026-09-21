@@ -5,13 +5,14 @@ Não usa nenhuma chamada de IA - apenas requests HTTP + parsing de HTML/regex.
 import os
 import re
 import requests
+import time
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 
 PAGESPEED_API = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 GTM_JS_URL = "https://www.googletagmanager.com/gtm.js"
 TIMEOUT_PAGESPEED = 120
-TIMEOUT_HTTP = 20
+TIMEOUT_HTTP = 25
 UA_HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
@@ -20,7 +21,6 @@ UA_HEADERS = {
 
 DEFAULT_PAGESPEED_API_KEY = "AIzaSyBuvA0OE36shPYEkoGY886S-Lii6Tb8INk"
 
-# Dicionário de tradução para oportunidades comuns do PageSpeed
 OPPORTUNITIES_MAP = {
     "Reduce unused JavaScript": "Reduzir JavaScript não utilizado",
     "Reduce unused CSS": "Reduzir CSS não utilizado",
@@ -38,42 +38,53 @@ OPPORTUNITIES_MAP = {
 # 1. PAGESPEED
 # ---------------------------------------------------------------------------
 def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> dict:
-    """Chama a API do Google PageSpeed com locale em PT-BR e interpretação de notas."""
+    """Chama a API do Google PageSpeed Insights com fallback de nova tentativa e suporte a PT-BR."""
     api_key = api_key or os.environ.get("PAGESPEED_API_KEY") or DEFAULT_PAGESPEED_API_KEY
     
+    # Envia o conjunto de categorias completo exigido pela API v5 para evitar falhas do Lighthouse
     params = {
         "url": url, 
         "strategy": strategy, 
-        "category": ["performance", "seo"],
-        "locale": "pt_BR"  # Solicita respostas em Português do Brasil
+        "category": ["performance", "accessibility", "best-practices", "seo"],
+        "locale": "pt_BR"
     }
     if api_key:
         params["key"] = api_key
 
-    try:
-        resp = requests.get(PAGESPEED_API, params=params, timeout=TIMEOUT_PAGESPEED)
-        resp.raise_for_status()
-        data = resp.json()
-    except requests.exceptions.Timeout:
-        return {"error": f"Tempo limite excedido ({TIMEOUT_PAGESPEED}s). A API do Google demorou muito a responder para o modo {strategy}."}
-    except requests.exceptions.HTTPError as e:
-        if e.response is not None and e.response.status_code == 429:
-            return {"error": "Cota da API do PageSpeed excedida (erro 429)."}
-        try:
-            data = e.response.json()
-            return {"error": data.get("error", {}).get("message", str(e))}
-        except Exception:
-            return {"error": str(e)}
-    except Exception as e:
-        return {"error": str(e)}
+    data = None
+    last_error = ""
 
-    if "error" in data:
-        return {"error": data["error"].get("message", "Erro desconhecido na API")}
+    # Tenta até 2 vezes em caso de instabilidade momentânea nos servidores do Google
+    for attempt in range(2):
+        try:
+            resp = requests.get(PAGESPEED_API, params=params, timeout=TIMEOUT_PAGESPEED)
+            resp.raise_for_status()
+            res_json = resp.json()
+            
+            if "error" not in res_json and "lighthouseResult" in res_json:
+                data = res_json
+                break
+            elif "error" in res_json:
+                last_error = res_json["error"].get("message", "Erro na API do Google")
+        except requests.exceptions.Timeout:
+            last_error = f"Tempo limite excedido ({TIMEOUT_PAGESPEED}s)."
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 429:
+                return {"error": "Cota da API do PageSpeed excedida (erro 429)."}
+            try:
+                err_data = e.response.json()
+                last_error = err_data.get("error", {}).get("message", str(e))
+            except Exception:
+                last_error = str(e)
+        except Exception as e:
+            last_error = str(e)
+
+        time.sleep(2)  # Aguarda 2s antes de tentar novamente se falhou
+
+    if not data:
+        return {"error": last_error or "Não foi possível obter dados do Google PageSpeed."}
 
     lh = data.get("lighthouseResult", {})
-    if not lh:
-        return {"error": "Servidor do Google não retornou resultados do Lighthouse."}
-
     cats = lh.get("categories", {})
     audits = lh.get("audits", {})
 
@@ -91,7 +102,6 @@ def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> di
 
     perf_score = score("performance")
     
-    # Lógica de interpretação de notas solicitada
     if perf_score is not None:
         if perf_score < 80:
             interpretation = {
@@ -162,11 +172,9 @@ def check_broken_links(html: str, base_url: str) -> list:
         href = a.get("href", "").strip()
         if href and not href.startswith(("#", "javascript:", "mailto:", "tel:", "wa.me", "whatsapp:")):
             abs_url = urljoin(base_url, href)
-            # Analisa apenas links do mesmo domínio para manter a auditoria rápida
             if urlparse(abs_url).netloc == parsed_base.netloc:
                 links.add(abs_url)
 
-    # Checa os primeiros 15 links internos via HTTP HEAD
     for link in list(links)[:15]:
         try:
             resp = requests.head(link, headers=UA_HEADERS, timeout=5, allow_redirects=True)
@@ -248,7 +256,6 @@ def detect_forms(html: str, base_url: str) -> list:
         destino = "desconhecido"
         low = action_abs.lower()
         
-        # Verifica se possui redirecionamento para Thank You Page explícita na action
         has_thank_you_page = any(w in low for w in ["obrigad", "thank", "sucesso", "agradec"])
 
         if "wa.me" in low or "whatsapp" in low or "api.whatsapp" in low:
