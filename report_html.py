@@ -1,5 +1,5 @@
 """
-Gera o preview HTML do relatório com bandeiras de desempenho, links quebrados e avisos de formulário.
+Gera o preview HTML do relatório para exibição direta no Streamlit.
 """
 from datetime import datetime
 
@@ -29,7 +29,7 @@ def build_html_report(cliente: str, url: str, is_ecommerce: bool,
 
         html = f'<h3>Desempenho — {title}</h3>'
         
-        # Renderização do aviso de interpretação (Vermelho, Laranja ou Sem Bandeira)
+        # Alerta de interpretação da pontuação
         if interp.get("level") == "red":
             html += f'<div class="issue-card critical"><b>ATENÇÃO:</b> {interp["text"]}</div>'
         elif interp.get("level") == "orange":
@@ -74,21 +74,27 @@ def build_html_report(cliente: str, url: str, is_ecommerce: bool,
         for issue in tags["issues"]:
             tags_html += f'<div class="issue-card critical"><b>Achado:</b> {issue}</div>'
 
-    # Formulários e Thank You Pages
+    # Formulários (Nativos + RD Station + iFrames)
     forms_html = '<h3>Formulários e Conversão</h3>'
     if not forms_data.get("forms"):
-        forms_html += '<p>Nenhum formulário &lt;form&gt; detectado no HTML estático.</p>'
+        forms_html += '''<div class="issue-card info">
+            <b>Nota:</b> Nenhum formulário estático ou script de automação (RD Station/HubSpot) foi detectado no HTML base.
+        </div>'''
     else:
         for f in forms_data["forms"]:
+            tipo_label = f.get("tipo", "Formulário")
             forms_html += f'''<div class="form-box">
-                <b>Formulário #{f["id"]}</b> ({f["num_campos"]} campos): {", ".join(f["fields"]) or "-"}<br>
+                <b>Formulário #{f["id"]} ({tipo_label})</b> - {f["num_campos"]} campo(s): {", ".join(f["fields"]) or "-"}<br>
                 <small>Destino: <b>{f["destino"]}</b> → {f["action"]}</small>
             </div>'''
             
-            # Texto exato solicitado para ausência de Thank You Page
             if not f.get("has_thank_you_page"):
                 forms_html += f'''<div class="issue-card warning">
                 Página de agradecimento não encontrada no formulário #{f["id"]}. Isto não impossibilita o tracking do formulário, porém implica na criação de soluções que estão sujeitas a maior taxa de erro de contabilização. (form_submit, click_text, etc)
+                </div>'''
+            else:
+                forms_html += f'''<div class="issue-card info" style="border-left-color: #2F9E44; background: #EBFBEE; color: #2B8A3E;">
+                <b>Sucesso:</b> Indicação de página de agradecimento / redirecionamento identificada no formulário #{f["id"]}.
                 </div>'''
 
     # Links Quebrados
