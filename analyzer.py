@@ -10,8 +10,8 @@ from urllib.parse import urljoin, urlparse
 
 PAGESPEED_API = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 GTM_JS_URL = "https://www.googletagmanager.com/gtm.js"
-TIMEOUT_PAGESPEED = 60  # 60 segundos para dar margem suficiente ao Lighthouse do Google
-TIMEOUT_HTTP = 20
+TIMEOUT_PAGESPEED = 120  # Aumentado para 120 segundos (2 minutos) por chamada
+TIMEOUT_HTTP = 25
 UA_HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
@@ -26,10 +26,9 @@ DEFAULT_PAGESPEED_API_KEY = "AIzaSyBuvA0OE36shPYEkoGY886S-Lii6Tb8INk"
 # 1. PAGESPEED
 # ---------------------------------------------------------------------------
 def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> dict:
-    """Chama a API do Google PageSpeed Insights com limites de tempo e categorias otimizados."""
+    """Chama a API do Google PageSpeed Insights com timeout estendido de 2 minutos."""
     api_key = api_key or os.environ.get("PAGESPEED_API_KEY") or DEFAULT_PAGESPEED_API_KEY
     
-    # Solicita categorias essenciais para acelerar o retorno do Lighthouse
     params = {
         "url": url, 
         "strategy": strategy, 
@@ -135,13 +134,12 @@ def fetch_gtm_containers_content(html: str) -> str:
 # 3. TAGS E SCRIPTS
 # ---------------------------------------------------------------------------
 def detect_tags(html: str, gtm_js_content: str = "") -> dict:
-    """Detecta tags de rastreamento no HTML e dentro de containers GTM."""
+    """Detecta tags de rastreamento."""
     combined = html + "\n" + gtm_js_content
 
     ga4_html_only = set(re.findall(r"\bG-[A-Z0-9]{6,}\b", html))
     ads_html_only = set(re.findall(r"\bAW-[0-9]{5,}\b", html))
 
-    # Captura IDs do Meta Pixel em fbq('init', 'ID'), escapados ou em URLs fbevents.js
     pixel_matches = re.findall(r"fbq\(\\?['\"]init\\?['\"],\s*\\?['\"](\d{13,16})\\?['\"]", combined)
     pixel_matches += re.findall(r"id=(\d{13,16})", combined)
 
