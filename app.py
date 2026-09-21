@@ -1,14 +1,13 @@
 """
 App web da ferramenta de análise técnica de sites.
 Roda com: streamlit run app.py
-Hospedagem gratuita: streamlit.io/cloud
 """
 import streamlit as st
 import streamlit.components.v1 as components
 import io
 import os
 import re
-from analyzer import (get_pagespeed, fetch_html, fetch_gtm_containers_content,
+from analyzer import (get_pagespeed, fetch_html, check_broken_links, fetch_gtm_containers_content,
                        detect_tags, detect_forms, detect_usability_issues,
                        DEFAULT_PAGESPEED_API_KEY)
 from report import build_pdf
@@ -22,7 +21,7 @@ except Exception:
 st.set_page_config(page_title="Análise Técnica de Sites — Munz", page_icon="🔍", layout="wide")
 
 st.title("🔍 Análise Técnica de Sites")
-st.caption("PageSpeed, tags de rastreamento, formulários e usabilidade — visualização rápida na tela + download em PDF.")
+st.caption("PageSpeed, tags de rastreamento, formulários, links quebrados e usabilidade — visualização rápida + download em PDF.")
 
 with st.form("audit_form"):
     col1, col2 = st.columns([2, 1])
@@ -40,28 +39,31 @@ if submitted:
 
     url = url_input if url_input.startswith("http") else f"https://{url_input}"
 
-    # Avisa o usuário sobre o tempo estimado da auditoria
-    st.info("⏱️ **Tempo estimado:** A análise do PageSpeed pelo Google costuma levar entre **1 a 2 minutos**. Por favor, aguarde sem fechar a página.")
+    st.info("⏱️ **Tempo estimado:** A análise técnica completa leva cerca de **1 a 2 minutos**. Por favor, aguarde.")
 
     progress = st.progress(0, text="Iniciando análise...")
 
-    # [1/4] PageSpeed Mobile
-    progress.progress(10, text="⏳ [1/4] Consultando PageSpeed Mobile no Google (pode levar até 60s)...")
+    # [1/5] PageSpeed Mobile
+    progress.progress(10, text="⏳ [1/5] Consultando PageSpeed Mobile no Google...")
     ps_mobile = get_pagespeed(url, "mobile", api_key=PAGESPEED_API_KEY)
 
-    # [2/4] PageSpeed Desktop
-    progress.progress(45, text="⏳ [2/4] Consultando PageSpeed Desktop no Google (pode levar até 60s)...")
+    # [2/5] PageSpeed Desktop
+    progress.progress(40, text="⏳ [2/5] Consultando PageSpeed Desktop no Google...")
     ps_desktop = get_pagespeed(url, "desktop", api_key=PAGESPEED_API_KEY)
 
-    # [3/4] Download do HTML e tags
-    progress.progress(80, text="🔍 [3/4] Baixando HTML do site e auditando tags GTM/GA4/Pixel...")
+    # [3/5] HTML & Links Quebrados
+    progress.progress(70, text="🔍 [3/5] Baixando HTML e checando se há links quebrados...")
     try:
         html = fetch_html(url)
         html_ok = True
+        broken_links = check_broken_links(html, url)
     except Exception:
         html = ""
         html_ok = False
+        broken_links = []
 
+    # [4/5] Tags e Formulários
+    progress.progress(85, text="📊 [4/5] Auditando tags GTM/GA4/Pixel e formulários...")
     gtm_js_content = fetch_gtm_containers_content(html) if html_ok else ""
 
     if html_ok:
@@ -73,29 +75,28 @@ if submitted:
         forms_data = {"forms": [], "duplicated_cta_targets": []}
         usability_issues = []
 
-    # [4/4] Gerando relatórios
-    progress.progress(95, text="📄 [4/4] Montando visualização na tela e PDF...")
+    # [5/5] Compilação dos Relatórios
+    progress.progress(95, text="📄 [5/5] Compilando visualização na tela e PDF...")
     
-    # 1. Gera HTML para Preview
     html_report = build_html_report(
         cliente=cliente, url=url, is_ecommerce=is_ecommerce,
         pagespeed_mobile=ps_mobile, pagespeed_desktop=ps_desktop,
-        tags=tags, forms_data=forms_data, usability_issues=usability_issues
+        tags=tags, forms_data=forms_data, usability_issues=usability_issues,
+        broken_links=broken_links
     )
 
-    # 2. Gera PDF para Download
     pdf_buffer = io.BytesIO()
     build_pdf(
         output_path=pdf_buffer, cliente=cliente, url=url, is_ecommerce=is_ecommerce,
         pagespeed_mobile=ps_mobile, pagespeed_desktop=ps_desktop,
-        tags=tags, forms_data=forms_data, usability_issues=usability_issues
+        tags=tags, forms_data=forms_data, usability_issues=usability_issues,
+        broken_links=broken_links
     )
     pdf_buffer.seek(0)
     progress.progress(100, text="Concluído!")
 
     st.success("Análise concluída com sucesso!")
 
-    # Botão de Download do PDF
     slug = re.sub(r"[^\w\s-]", "", cliente).strip().lower()
     slug = re.sub(r"[\s]+", "-", slug)
     
