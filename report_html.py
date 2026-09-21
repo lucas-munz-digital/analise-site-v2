@@ -1,19 +1,20 @@
 """
-Gera o preview HTML do relatório para exibição direta na tela do Streamlit.
+Gera o preview HTML do relatório com bandeiras de desempenho, links quebrados e avisos de formulário.
 """
 from datetime import datetime
 
 
 def build_html_report(cliente: str, url: str, is_ecommerce: bool,
                        pagespeed_mobile: dict, pagespeed_desktop: dict,
-                       tags: dict, forms_data: dict, usability_issues: list) -> str:
+                       tags: dict, forms_data: dict, usability_issues: list,
+                       broken_links: list = None) -> str:
 
     def get_score_class(score):
         if score is None:
             return "neutral"
         if score >= 90:
             return "good"
-        if score >= 50:
+        if score >= 80:
             return "average"
         return "poor"
 
@@ -24,17 +25,26 @@ def build_html_report(cliente: str, url: str, is_ecommerce: bool,
         scores = data.get("scores", {})
         vitals = data.get("vitals", {})
         opportunities = data.get("opportunities", [])
+        interp = data.get("interpretation", {})
 
         html = f'<h3>Desempenho — {title}</h3>'
+        
+        # Renderização do aviso de interpretação (Vermelho, Laranja ou Sem Bandeira)
+        if interp.get("level") == "red":
+            html += f'<div class="issue-card critical"><b>ATENÇÃO:</b> {interp["text"]}</div>'
+        elif interp.get("level") == "orange":
+            html += f'<div class="issue-card warning"><b>OBSERVAÇÃO:</b> {interp["text"]}</div>'
+        elif interp.get("level") == "none":
+            html += f'<div class="issue-card info"><b>INFO:</b> {interp["text"]}</div>'
+
         html += '<div class="scores-grid">'
-        for label, key in [("Performance", "performance"), ("Acessibilidade", "accessibility"),
-                           ("Boas Práticas", "best_practices"), ("SEO", "seo")]:
+        for label, key in [("Performance", "performance"), ("SEO", "seo")]:
             val = scores.get(key, "-")
             cls = get_score_class(val)
             html += f'<div class="score-card {cls}"><span class="score-val">{val}</span><span class="score-lbl">{label}</span></div>'
         html += '</div>'
 
-        html += '<table class="data-table"><thead><tr><th>Core Web Vital</th><th>Valor</th></tr></thead><tbody>'
+        html += '<table class="data-table"><thead><tr><th>Métrica (Core Web Vitals)</th><th>Valor</th></tr></thead><tbody>'
         for k, v in [("First Contentful Paint (FCP)", vitals.get("fcp")),
                      ("Largest Contentful Paint (LCP)", vitals.get("lcp")),
                      ("Total Blocking Time (TBT)", vitals.get("tbt")),
@@ -44,7 +54,7 @@ def build_html_report(cliente: str, url: str, is_ecommerce: bool,
         html += '</tbody></table>'
 
         if opportunities:
-            html += '<p><b>Principais Oportunidades:</b></p><ul>'
+            html += '<p><b>Principais Oportunidades de Melhoria:</b></p><ul>'
             for opp in opportunities:
                 saving = f' (economia de ~{round(opp["savings_ms"]/1000, 1)}s)' if opp.get("savings_ms") else ''
                 html += f'<li>{opp["title"]}{saving}</li>'
@@ -64,18 +74,29 @@ def build_html_report(cliente: str, url: str, is_ecommerce: bool,
         for issue in tags["issues"]:
             tags_html += f'<div class="issue-card critical"><b>Achado:</b> {issue}</div>'
 
-    # Formulários
+    # Formulários e Thank You Pages
     forms_html = '<h3>Formulários e Conversão</h3>'
     if not forms_data.get("forms"):
         forms_html += '<p>Nenhum formulário &lt;form&gt; detectado no HTML estático.</p>'
     else:
-        for i, f in enumerate(forms_data["forms"], 1):
+        for f in forms_data["forms"]:
             forms_html += f'''<div class="form-box">
-                <b>Formulário {i}</b> ({f["num_campos"]} campos): {", ".join(f["fields"]) or "-"}<br>
+                <b>Formulário #{f["id"]}</b> ({f["num_campos"]} campos): {", ".join(f["fields"]) or "-"}<br>
                 <small>Destino: <b>{f["destino"]}</b> → {f["action"]}</small>
             </div>'''
-            if "WhatsApp" in f["destino"]:
-                forms_html += '<div class="issue-card critical"><b>Atenção:</b> Formulário envia direto para WhatsApp sem registrar no CRM.</div>'
+            
+            # Texto exato solicitado para ausência de Thank You Page
+            if not f.get("has_thank_you_page"):
+                forms_html += f'''<div class="issue-card warning">
+                Página de agradecimento não encontrada no formulário #{f["id"]}. Isto não impossibilita o tracking do formulário, porém implica na criação de soluções que estão sujeitas a maior taxa de erro de contabilização. (form_submit, click_text, etc)
+                </div>'''
+
+    # Links Quebrados
+    broken_html = ''
+    if broken_links:
+        broken_html = '<h3>Links Quebrados Detectados</h3>'
+        for bl in broken_links:
+            broken_html += f'<div class="issue-card critical"><b>Link Indisponível (Erro {bl["status"]}):</b> {bl["url"]}</div>'
 
     # Usabilidade
     usability_html = '<h3>Usabilidade e Design</h3>'
@@ -98,7 +119,7 @@ def build_html_report(cliente: str, url: str, is_ecommerce: bool,
     h1 {{ font-size: 24px; margin-bottom: 4px; color: #111; }}
     .subtitle {{ color: #666; font-size: 14px; margin-bottom: 20px; }}
     h3 {{ font-size: 18px; border-bottom: 2px solid #EEE; padding-bottom: 6px; margin-top: 28px; }}
-    .scores-grid {{ display: flex; gap: 12px; margin-bottom: 16px; }}
+    .scores-grid {{ display: flex; gap: 12px; margin-bottom: 16px; margin-top: 10px; }}
     .score-card {{ flex: 1; text-align: center; padding: 12px; border-radius: 6px; background: #F8F9FA; border: 1px solid #E9ECEF; }}
     .score-val {{ display: block; font-size: 26px; font-weight: bold; }}
     .score-lbl {{ font-size: 12px; color: #666; }}
@@ -122,6 +143,7 @@ def build_html_report(cliente: str, url: str, is_ecommerce: bool,
     {render_pagespeed_block("Desktop", pagespeed_desktop)}
     {tags_html}
     {forms_html}
+    {broken_html}
     {usability_html}
 </div>
 </body>
