@@ -79,7 +79,7 @@ def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> di
                 "description": re.sub(r"\[.*?\]\(.*?\)", "", audit.get("description", "")),
                 "savings_ms": audit["details"].get("overallSavingsMs", 0),
             })
-    opportunities.sort(key=x: -x["savings_ms"])
+    opportunities.sort(key=lambda x: -x["savings_ms"])
 
     return {
         "strategy": strategy,
