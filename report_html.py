@@ -1,5 +1,5 @@
 """
-Gera o preview HTML do relatório para exibição direta no Streamlit.
+Gera o preview HTML do relatório com os pareceres em linguagem natural da IA Gemini.
 """
 from datetime import datetime
 
@@ -7,7 +7,9 @@ from datetime import datetime
 def build_html_report(cliente: str, url: str, is_ecommerce: bool,
                        pagespeed_mobile: dict, pagespeed_desktop: dict,
                        tags: dict, forms_data: dict, usability_issues: list,
-                       broken_links: list = None) -> str:
+                       broken_links: list = None, ai_insights: dict = None) -> str:
+
+    ai = ai_insights or {}
 
     def get_score_class(score):
         if score is None:
@@ -17,6 +19,16 @@ def build_html_report(cliente: str, url: str, is_ecommerce: bool,
         if score >= 80:
             return "average"
         return "poor"
+
+    # Resumo Executivo da IA (Topo do Relatório)
+    resumo_exec_html = ''
+    if ai.get("resumo_executivo"):
+        resumo_exec_html = f'''
+        <div class="ai-box main-ai">
+            <h4>🤖 Parecer Executivo (Análise por IA)</h4>
+            <p>{ai.get("resumo_executivo")}</p>
+        </div>
+        '''
 
     def render_pagespeed_block(title, data):
         if "error" in data:
@@ -29,7 +41,6 @@ def build_html_report(cliente: str, url: str, is_ecommerce: bool,
 
         html = f'<h3>Desempenho — {title}</h3>'
         
-        # Alerta de interpretação da pontuação
         if interp.get("level") == "red":
             html += f'<div class="issue-card critical"><b>ATENÇÃO:</b> {interp["text"]}</div>'
         elif interp.get("level") == "orange":
@@ -61,8 +72,17 @@ def build_html_report(cliente: str, url: str, is_ecommerce: bool,
             html += '</ul>'
         return html
 
+    # Considerações de Desempenho da IA
+    ai_perf_html = ''
+    if ai.get("consideracoes_desempenho"):
+        ai_perf_html = f'<div class="ai-box"><b>💡 Análise de Mídia & CPC:</b> {ai.get("consideracoes_desempenho")}</div>'
+
     # Tags
-    tags_html = '<h3>Tags e Scripts de Rastreamento</h3><table class="data-table"><tbody>'
+    tags_html = '<h3>Tags e Scripts de Rastreamento</h3>'
+    if ai.get("consideracoes_tags"):
+        tags_html += f'<div class="ai-box"><b>💡 Diagnóstico de Tracking:</b> {ai.get("consideracoes_tags")}</div>'
+
+    tags_html += '<table class="data-table"><tbody>'
     for name, key in [("GTM", "gtm_containers"), ("GA4", "ga4_properties"),
                       ("Google Ads", "google_ads_ids"), ("Meta Pixel", "meta_pixel_ids")]:
         items = tags.get(key, [])
@@ -74,8 +94,11 @@ def build_html_report(cliente: str, url: str, is_ecommerce: bool,
         for issue in tags["issues"]:
             tags_html += f'<div class="issue-card critical"><b>Achado:</b> {issue}</div>'
 
-    # Formulários (Nativos + RD Station + iFrames)
+    # Formulários
     forms_html = '<h3>Formulários e Conversão</h3>'
+    if ai.get("consideracoes_conversao"):
+        forms_html += f'<div class="ai-box"><b>💡 Diagnóstico de Conversão:</b> {ai.get("consideracoes_conversao")}</div>'
+
     if not forms_data.get("forms"):
         forms_html += '''<div class="issue-card info">
             <b>Nota:</b> Nenhum formulário estático ou script de automação (RD Station/HubSpot) foi detectado no HTML base.
@@ -139,14 +162,19 @@ def build_html_report(cliente: str, url: str, is_ecommerce: bool,
     .info {{ background: #F1F3F5; border-left: 4px solid #868E96; color: #495057; }}
     .form-box {{ background: #F8F9FA; padding: 10px; border-radius: 6px; margin-bottom: 6px; font-size: 13.5px; }}
     .error-box {{ background: #FFF5F5; color: #C92A2A; padding: 10px; border-radius: 6px; margin: 10px 0; }}
+    .ai-box {{ background: #E7F5FF; border-left: 4px solid #1C7ED6; color: #1864AB; padding: 12px 16px; border-radius: 6px; margin: 12px 0; font-size: 13.5px; line-height: 1.5; }}
+    .main-ai h4 {{ margin: 0 0 6px 0; font-size: 15px; color: #1C7ED6; }}
+    .main-ai p {{ margin: 0; }}
 </style>
 </head>
 <body>
 <div class="container">
     <h1>Análise Técnica: {cliente}</h1>
     <div class="subtitle"><a href="{url}" target="_blank">{url}</a> | Gerado em {now_str}</div>
+    {resumo_exec_html}
     {render_pagespeed_block("Mobile", pagespeed_mobile)}
     {render_pagespeed_block("Desktop", pagespeed_desktop)}
+    {ai_perf_html}
     {tags_html}
     {forms_html}
     {broken_html}
