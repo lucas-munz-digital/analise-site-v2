@@ -7,7 +7,7 @@ import streamlit.components.v1 as components
 import io
 import os
 import re
-from analyzer import (get_pagespeed, fetch_html, check_broken_links, fetch_gtm_containers_content,
+from analyzer import (get_pagespeed, fetch_html, extract_page_context, check_broken_links, fetch_gtm_containers_content,
                        detect_tags, detect_forms, detect_usability_issues,
                        DEFAULT_PAGESPEED_API_KEY)
 from ai_analyst import generate_ai_insights
@@ -52,15 +52,17 @@ if submitted:
     progress.progress(35, text="⏳ [2/6] Consultando PageSpeed Desktop no Google...")
     ps_desktop = get_pagespeed(url, "desktop", api_key=PAGESPEED_API_KEY)
 
-    # [3/6] HTML & Links Quebrados
-    progress.progress(60, text="🔍 [3/6] Baixando HTML e checando se há links quebrados...")
+    # [3/6] HTML & Contexto da Página
+    progress.progress(60, text="🔍 [3/6] Baixando HTML, analisando estrutura de Copy/CRO e links...")
     try:
         html = fetch_html(url)
         html_ok = True
+        page_context = extract_page_context(html)
         broken_links = check_broken_links(html, url)
     except Exception:
         html = ""
         html_ok = False
+        page_context = {}
         broken_links = []
 
     # [4/6] Tags e Formulários
@@ -77,12 +79,13 @@ if submitted:
         usability_issues = []
 
     # [5/6] Inteligência Artificial Gemini
-    progress.progress(88, text="🤖 [5/6] Gemini AI gerando pareceres técnicos e resumo executivo...")
+    progress.progress(88, text="🤖 [5/6] Especialista Gemini AI analisando CRO, Mídia e UX...")
     ai_insights = generate_ai_insights(
         cliente=cliente, url=url,
         pagespeed_mobile=ps_mobile, pagespeed_desktop=ps_desktop,
         tags=tags, forms_data=forms_data,
-        usability_issues=usability_issues, broken_links=broken_links
+        usability_issues=usability_issues, broken_links=broken_links,
+        page_context=page_context
     )
 
     # [6/6] Compilação dos Relatórios
@@ -119,5 +122,5 @@ if submitted:
         use_container_width=True
     )
 
-    st.subheader("📋 Preview do Relatório com Análise por IA")
+    st.subheader("📋 Preview do Relatório com Parecer Estratégico de IA")
     components.html(html_report, height=850, scrolling=True)
