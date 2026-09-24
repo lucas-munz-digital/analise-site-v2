@@ -17,7 +17,7 @@ def generate_ai_insights(cliente: str, url: str, pagespeed_mobile: dict,
                          api_key: str = None) -> dict:
     """
     Combina as métricas técnicas e o contexto comercial da página para gerar
-    análises estratégicas profundas através do Gemini 2.5.
+    análises estratégicas profundas através do Gemini.
     """
     gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or DEFAULT_GEMINI_API_KEY
 
@@ -51,7 +51,7 @@ def generate_ai_insights(cliente: str, url: str, pagespeed_mobile: dict,
         }
 
         prompt = f"""
-Sua persona: Você é o Diretor de Mídia Paga eCRO/UX Sênior da Agência Mestre. Sua experiência abrange a gestão de milhões de reais em tráfego pago (Google Ads, Meta Ads) e a otimização de Landing Pages de alta conversão.
+Sua persona: Você é o Diretor de Mídia Paga e CRO/UX Sênior da Agência Mestre. Sua experiência abrange a gestão de milhões de reais em tráfego pago (Google Ads, Meta Ads) e a otimização de Landing Pages de alta conversão.
 
 Sua missão: Analisar os dados técnicos e mercadológicos da auditoria abaixo e emitir um parecer estratégico profundo, humano e altamente profissional. Evite generalidades; fundamente suas observações considerando o modelo de negócio inferido pelos títulos, meta description e CTAs da página.
 
@@ -74,11 +74,11 @@ DIRETRIZES DE RESPOSTA (Gere ESTRITAMENTE um objeto JSON com estas chaves):
 
 4. "consideracoes_conversao":
    - Analise os formulários, iFrames e botões de CTA sob a ótica de UX/CRO.
-   - Comente sobre a presenção ou ausência de Thank You Page e oriente sobre as melhores práticas para que a equipe de mídia possa otimizar as campanhas por meta de conversão real.
+   - Comente sobre a presença ou ausência de Thank You Page e oriente sobre as melhores práticas para que a equipe de mídia possa otimizar as campanhas por meta de conversão real.
 """
 
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.8-flash',
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
