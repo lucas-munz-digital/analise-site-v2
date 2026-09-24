@@ -40,8 +40,6 @@ OPPORTUNITIES_MAP = {
 def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> dict:
     """Chama a API do Google PageSpeed Insights com resiliência contra erros internos do Lighthouse."""
     api_key = api_key or os.environ.get("PAGESPEED_API_KEY") or DEFAULT_PAGESPEED_API_KEY
-    
-    # Para mobile, usamos apenas a categoria performance para evitar estouro de memória no Lighthouse do Google
     categories = ["performance"] if strategy == "mobile" else ["performance", "seo"]
 
     params = {
@@ -56,13 +54,11 @@ def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> di
     data = None
     last_error = ""
 
-    # Tentativa 1: Com locale pt_BR
-    # Tentativa 2: Fallback sem locale (resolve o erro 'Something went wrong' em sites pesados no Mobile)
     for attempt in range(2):
         try:
             current_params = params.copy()
             if attempt == 1:
-                current_params.pop("locale", None) # Remove locale na 2ª tentativa se o Google falhou
+                current_params.pop("locale", None)
 
             resp = requests.get(PAGESPEED_API, params=current_params, timeout=TIMEOUT_PAGESPEED)
             resp.raise_for_status()
@@ -160,7 +156,7 @@ def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> di
     }
 
 # ---------------------------------------------------------------------------
-# 2. FETCH HTML & CHECAGEM DE LINKS QUEBRADOS
+# 2. FETCH HTML, LINKS QUEBRADOS & CONTEXTO DA PÁGINA (COPY/CRO)
 # ---------------------------------------------------------------------------
 def fetch_html(url: str) -> str:
     headers = {**UA_HEADERS, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
@@ -168,8 +164,34 @@ def fetch_html(url: str) -> str:
     resp.raise_for_status()
     return resp.text
 
+def extract_page_context(html: str) -> dict:
+    """Extrai títulos, meta description e CTAs para dar contexto de UX/CRO à IA."""
+    soup = BeautifulSoup(html, "html.parser")
+    
+    title = soup.find("title")
+    title_text = title.text.strip() if title else ""
+
+    meta_desc = soup.find("meta", attrs={"name": "description"})
+    desc_text = meta_desc.get("content", "").strip() if meta_desc else ""
+
+    h1_list = [h.get_text().strip() for h in soup.find_all("h1") if h.get_text().strip()]
+    h2_list = [h.get_text().strip() for h in soup.find_all("h2") if h.get_text().strip()][:5]
+
+    cta_buttons = []
+    for elem in soup.find_all(["a", "button"]):
+        txt = elem.get_text().strip()
+        if txt and len(txt) < 50 and any(w in txt.lower() for w in ["comprar", "contratar", "solicitar", "falar", "whatsapp", "orçamento", "saiba mais", "inscreva"]):
+            cta_buttons.append(txt)
+
+    return {
+        "title": title_text,
+        "meta_description": desc_text,
+        "h1": h1_list,
+        "h2_exemplos": h2_list,
+        "ctas_encontrados": list(set(cta_buttons))[:6]
+    }
+
 def check_broken_links(html: str, base_url: str) -> list:
-    """Verifica links internos da página e identifica retornos de erro 404/500."""
     soup = BeautifulSoup(html, "html.parser")
     parsed_base = urlparse(base_url)
     broken_links = []
@@ -244,14 +266,13 @@ def detect_tags(html: str, gtm_js_content: str = "") -> dict:
     return findings
 
 # ---------------------------------------------------------------------------
-# 4. FORMULÁRIOS & PÁGINAS DE AGRADECIMENTO (Nativos + RD Station / Hubspot)
+# 4. FORMULÁRIOS & PÁGINAS DE AGRADECIMENTO
 # ---------------------------------------------------------------------------
 def detect_forms(html: str, base_url: str) -> list:
     soup = BeautifulSoup(html, "html.parser")
     forms = []
     form_id_counter = 1
 
-    # A) Checagem de Formulários Nativos <form>
     for form in soup.find_all("form"):
         action = form.get("action", "") or "(mesma página)"
         action_abs = urljoin(base_url, action) if action != "(mesma página)" else action
@@ -286,7 +307,6 @@ def detect_forms(html: str, base_url: str) -> list:
         })
         form_id_counter += 1
 
-    # B) Detecção de Formulários RD Station / Automação (Injetados via Script ou iFrame)
     rd_scripts = re.findall(r'd335luupugsy2\.cloudfront\.net.*?/([a-f0-9-]+)\.js', html)
     rd_forms_embed = soup.find_all(attrs={"data-rd-form": True}) or re.findall(r'RDStation\.Form\s*\(', html)
     
@@ -304,7 +324,6 @@ def detect_forms(html: str, base_url: str) -> list:
         })
         form_id_counter += 1
 
-    # C) Detecção de iFrames de Formulários Externos
     for iframe in soup.find_all("iframe", src=True):
         src = iframe.get("src", "").lower()
         if any(w in src for w in ["typeform", "hubspot", "activecampaign", "form"]):
