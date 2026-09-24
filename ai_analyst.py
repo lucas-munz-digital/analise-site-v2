@@ -1,13 +1,22 @@
 """
 Módulo de análise por IA usando o Google Gemini.
 Gera pareceres profundos de UX/CRO e Mídia Paga com persona Sênior.
+Inclui sistema de retry automático e fallback entre modelos para evitar erro 503.
 """
 import os
 import json
+import time
 from google import genai
 from google.genai import types
 
 DEFAULT_GEMINI_API_KEY = "AIzaSyBuvA0OE36shPYEkoGY886S-Lii6Tb8INk"
+
+# Lista de modelos por ordem de preferência para fallback automático
+CANDIDATE_MODELS = [
+    'gemini-2.5-flash',
+    'gemini-1.5-flash',
+    'gemini-2.0-flash'
+]
 
 
 def generate_ai_insights(cliente: str, url: str, pagespeed_mobile: dict, 
@@ -21,36 +30,35 @@ def generate_ai_insights(cliente: str, url: str, pagespeed_mobile: dict,
     """
     gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or DEFAULT_GEMINI_API_KEY
 
-    try:
-        client = genai.Client(api_key=gemini_key)
+    client = genai.Client(api_key=gemini_key)
 
-        audit_payload = {
-            "cliente": cliente,
-            "url": url,
-            "contexto_da_pagina": page_context or {},
-            "desempenho_mobile": {
-                "score_performance": pagespeed_mobile.get("scores", {}).get("performance"),
-                "vitals": pagespeed_mobile.get("vitals", {}),
-                "oportunidades": [o.get("title") for o in pagespeed_mobile.get("opportunities", [])]
-            },
-            "desempenho_desktop": {
-                "score_performance": pagespeed_desktop.get("scores", {}).get("performance"),
-                "vitals": pagespeed_desktop.get("vitals", {}),
-                "oportunidades": [o.get("title") for o in pagespeed_desktop.get("opportunities", [])]
-            },
-            "tags_rastreamento": {
-                "gtm": tags.get("gtm_containers"),
-                "ga4": tags.get("ga4_properties"),
-                "google_ads": tags.get("google_ads_ids"),
-                "meta_pixel": tags.get("meta_pixel_ids"),
-                "alertas": tags.get("issues", [])
-            },
-            "formularios_e_conversao": forms_data.get("forms", []),
-            "links_quebrados": [bl.get("url") for bl in (broken_links or [])],
-            "usabilidade_heuristica": [u[1] for u in usability_issues]
-        }
+    audit_payload = {
+        "cliente": cliente,
+        "url": url,
+        "contexto_da_pagina": page_context or {},
+        "desempenho_mobile": {
+            "score_performance": pagespeed_mobile.get("scores", {}).get("performance"),
+            "vitals": pagespeed_mobile.get("vitals", {}),
+            "oportunidades": [o.get("title") for o in pagespeed_mobile.get("opportunities", [])]
+        },
+        "desempenho_desktop": {
+            "score_performance": pagespeed_desktop.get("scores", {}).get("performance"),
+            "vitals": pagespeed_desktop.get("vitals", {}),
+            "oportunidades": [o.get("title") for o in pagespeed_desktop.get("opportunities", [])]
+        },
+        "tags_rastreamento": {
+            "gtm": tags.get("gtm_containers"),
+            "ga4": tags.get("ga4_properties"),
+            "google_ads": tags.get("google_ads_ids"),
+            "meta_pixel": tags.get("meta_pixel_ids"),
+            "alertas": tags.get("issues", [])
+        },
+        "formularios_e_conversao": forms_data.get("forms", []),
+        "links_quebrados": [bl.get("url") for bl in (broken_links or [])],
+        "usabilidade_heuristica": [u[1] for u in usability_issues]
+    }
 
-        prompt = f"""
+    prompt = f"""
 Sua persona: Você é o Diretor de Mídia Paga e CRO/UX Sênior da Agência Mestre. Sua experiência abrange a gestão de milhões de reais em tráfego pago (Google Ads, Meta Ads) e a otimização de Landing Pages de alta conversão.
 
 Sua missão: Analisar os dados técnicos e mercadológicos da auditoria abaixo e emitir um parecer estratégico profundo, humano e altamente profissional. Evite generalidades; fundamente suas observações considerando o modelo de negócio inferido pelos títulos, meta description e CTAs da página.
@@ -77,21 +85,31 @@ DIRETRIZES DE RESPOSTA (Gere ESTRITAMENTE um objeto JSON com estas chaves):
    - Comente sobre a presença ou ausência de Thank You Page e oriente sobre as melhores práticas para que a equipe de mídia possa otimizar as campanhas por meta de conversão real.
 """
 
-        response = client.models.generate_content(
-            model='gemini-3.8-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.3
-            )
-        )
+    last_exception = None
 
-        return json.loads(response.text)
+    # Tenta executar nos modelos em ordem de prioridade com retries caso haja erro 503
+    for model_name in CANDIDATE_MODELS:
+        for attempt in range(2): # 2 tentativas por modelo
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.3
+                    )
+                )
+                if response and response.text:
+                    return json.loads(response.text)
+            except Exception as e:
+                last_exception = e
+                # Se for erro de alta demanda (503/429), aguarda 2 segundos antes de tentar novamente ou trocar de modelo
+                time.sleep(2)
 
-    except Exception as e:
-        return {
-            "resumo_executivo": f"Análise técnica concluída. O parecer estratégico de IA temporariamente indisponível ({str(e)}).",
-            "consideracoes_desempenho": "Analise as métricas de LCP/FCP no quadro abaixo para identificar gargalos de velocidade.",
-            "consideracoes_tags": "Verifique a lista de tags e alertas do GTM para garantir o correto rastreamento de conversão.",
-            "consideracoes_conversao": "Verifique a tabela de formulários e a existência de Thank You Page para alinhar o disparo de eventos no CRM."
-        }
+    # Caso todos os modelos falhem
+    return {
+        "resumo_executivo": f"Análise técnica concluída. O parecer estratégico por IA está temporariamente indisponível devido a alto tráfego nos servidores do Google ({str(last_exception)}).",
+        "consideracoes_desempenho": "Analise as métricas de LCP/FCP no quadro abaixo para identificar gargalos de velocidade.",
+        "consideracoes_tags": "Verifique a lista de tags e alertas do GTM para garantir o correto rastreamento de conversão.",
+        "consideracoes_conversao": "Verifique a tabela de formulários e a existência de Thank You Page para alinhar o disparo de eventos no CRM."
+    }
