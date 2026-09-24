@@ -1,5 +1,5 @@
 """
-Gera o PDF final do relatório a partir dos dados coletados pelo analyzer.py
+Gera o PDF final do relatório contendo a análise do Gemini.
 """
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
@@ -16,6 +16,8 @@ YELLOW = colors.HexColor("#F5B800")
 GRAY = colors.HexColor("#4A4A48")
 DARK = colors.HexColor("#1A1A1A")
 GREEN = colors.HexColor("#2F9E44")
+BLUE_BG = colors.HexColor("#E7F5FF")
+BLUE_TEXT = colors.HexColor("#1864AB")
 
 STYLES = getSampleStyleSheet()
 STYLES.add(ParagraphStyle("H1c", parent=STYLES["Heading1"], fontSize=20, textColor=DARK, spaceAfter=4))
@@ -23,6 +25,7 @@ STYLES.add(ParagraphStyle("H2c", parent=STYLES["Heading2"], fontSize=14, textCol
 STYLES.add(ParagraphStyle("Body", parent=STYLES["Normal"], fontSize=10.5, leading=15, textColor=DARK, alignment=TA_LEFT))
 STYLES.add(ParagraphStyle("Small", parent=STYLES["Normal"], fontSize=9, leading=13, textColor=GRAY))
 STYLES.add(ParagraphStyle("Tag", parent=STYLES["Normal"], fontSize=9, textColor=colors.white))
+STYLES.add(ParagraphStyle("AIBody", parent=STYLES["Normal"], fontSize=9.5, leading=14, textColor=BLUE_TEXT))
 
 
 def _severity_color(sev):
@@ -51,9 +54,25 @@ def _issue_block(title, sev, text):
     ]
 
 
+def _ai_box(title, text):
+    t = Table([[Paragraph(f"<b>{title}</b><br/>{text}", STYLES["AIBody"])]], colWidths=[16 * cm])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), BLUE_BG),
+        ("LINELEFT", (0, 0), (-1, -1), 3, colors.HexColor("#1C7ED6")),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    return [t, Spacer(1, 10)]
+
+
 def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
               pagespeed_mobile: dict, pagespeed_desktop: dict, tags: dict,
-              forms_data: dict, usability_issues: list, broken_links: list = None):
+              forms_data: dict, usability_issues: list, broken_links: list = None,
+              ai_insights: dict = None):
+
+    ai = ai_insights or {}
 
     doc = SimpleDocTemplate(output_path, pagesize=A4,
                              topMargin=2 * cm, bottomMargin=2 * cm,
@@ -69,6 +88,10 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
     story.append(Paragraph(datetime.now().strftime("Gerado em %d/%m/%Y às %H:%M"), STYLES["Small"]))
     story.append(PageBreak())
 
+    # Parecer Executivo da IA na 1ª Página
+    if ai.get("resumo_executivo"):
+        story.extend(_ai_box("Parecer Executivo (Análise por IA)", ai["resumo_executivo"]))
+
     # PageSpeed
     for label, data in [("Mobile", pagespeed_mobile), ("Desktop", pagespeed_desktop)]:
         story.append(Paragraph(f"Desempenho do Site — {label}", STYLES["H2c"]))
@@ -80,20 +103,24 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
                 story.extend(_issue_block("Atenção no Desempenho", "critico", interp["text"]))
             elif interp.get("level") == "orange":
                 story.extend(_issue_block("Oportunidade de Melhoria", "medio", interp["text"]))
-            elif interp.get("level") == "none":
-                story.append(Paragraph(f"<b>Status:</b> {interp['text']}", STYLES["Body"]))
-                story.append(Spacer(1, 6))
 
             if data["opportunities"]:
                 story.append(Paragraph("<b>Principais oportunidades de melhoria:</b>", STYLES["Body"]))
                 for opp in data["opportunities"]:
                     saving = f" (economia estimada de {round(opp['savings_ms']/1000, 1)}s)" if opp["savings_ms"] else ""
                     story.append(Paragraph(f"• {opp['title']}{saving}", STYLES["Small"]))
-        story.append(Spacer(1, 14))
+        story.append(Spacer(1, 10))
+
+    if ai.get("consideracoes_desempenho"):
+        story.extend(_ai_box("Diagnóstico de Mídia & CPC", ai["consideracoes_desempenho"]))
+
     story.append(PageBreak())
 
     # Tags
     story.append(Paragraph("Tags e Scripts de Rastreamento", STYLES["H2c"]))
+    if ai.get("consideracoes_tags"):
+        story.extend(_ai_box("Diagnóstico de Tracking", ai["consideracoes_tags"]))
+
     rows = [
         ["GTM", ", ".join(tags["gtm_containers"]) or "não encontrado"],
         ["GA4", ", ".join(tags["ga4_properties"]) or "não encontrado"],
@@ -113,6 +140,9 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
 
     # Formulários
     story.append(Paragraph("Formulários e Conversão", STYLES["H2c"]))
+    if ai.get("consideracoes_conversao"):
+        story.extend(_ai_box("Diagnóstico de Conversão", ai["consideracoes_conversao"]))
+
     if not forms_data["forms"]:
         story.append(Paragraph("Nenhum formulário estático ou script de automação foi encontrado no HTML base da página.", STYLES["Body"]))
     else:
