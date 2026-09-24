@@ -10,6 +10,7 @@ import re
 from analyzer import (get_pagespeed, fetch_html, check_broken_links, fetch_gtm_containers_content,
                        detect_tags, detect_forms, detect_usability_issues,
                        DEFAULT_PAGESPEED_API_KEY)
+from ai_analyst import generate_ai_insights
 from report import build_pdf
 from report_html import build_html_report
 
@@ -21,7 +22,7 @@ except Exception:
 st.set_page_config(page_title="Análise Técnica de Sites — Munz", page_icon="🔍", layout="wide")
 
 st.title("🔍 Análise Técnica de Sites")
-st.caption("PageSpeed, tags de rastreamento, formulários, links quebrados e usabilidade — visualização rápida + download em PDF.")
+st.caption("PageSpeed, tags de rastreamento, formulários, links quebrados e parecer inteligente via Gemini AI.")
 
 with st.form("audit_form"):
     col1, col2 = st.columns([2, 1])
@@ -43,16 +44,16 @@ if submitted:
 
     progress = st.progress(0, text="Iniciando análise...")
 
-    # [1/5] PageSpeed Mobile
-    progress.progress(10, text="⏳ [1/5] Consultando PageSpeed Mobile no Google...")
+    # [1/6] PageSpeed Mobile
+    progress.progress(10, text="⏳ [1/6] Consultando PageSpeed Mobile no Google...")
     ps_mobile = get_pagespeed(url, "mobile", api_key=PAGESPEED_API_KEY)
 
-    # [2/5] PageSpeed Desktop
-    progress.progress(40, text="⏳ [2/5] Consultando PageSpeed Desktop no Google...")
+    # [2/6] PageSpeed Desktop
+    progress.progress(35, text="⏳ [2/6] Consultando PageSpeed Desktop no Google...")
     ps_desktop = get_pagespeed(url, "desktop", api_key=PAGESPEED_API_KEY)
 
-    # [3/5] HTML & Links Quebrados
-    progress.progress(70, text="🔍 [3/5] Baixando HTML e checando se há links quebrados...")
+    # [3/6] HTML & Links Quebrados
+    progress.progress(60, text="🔍 [3/6] Baixando HTML e checando se há links quebrados...")
     try:
         html = fetch_html(url)
         html_ok = True
@@ -62,8 +63,8 @@ if submitted:
         html_ok = False
         broken_links = []
 
-    # [4/5] Tags e Formulários
-    progress.progress(85, text="📊 [4/5] Auditando tags GTM/GA4/Pixel e formulários...")
+    # [4/6] Tags e Formulários
+    progress.progress(75, text="📊 [4/6] Auditando tags GTM/GA4/Pixel e formulários...")
     gtm_js_content = fetch_gtm_containers_content(html) if html_ok else ""
 
     if html_ok:
@@ -71,18 +72,27 @@ if submitted:
         forms_data = detect_forms(html, url)
         usability_issues = detect_usability_issues(html, url)
     else:
-        tags = {"gtm_containers": [], "ga4_properties": [], "google_ads_ids": [], "meta_pixel_ids": [], "issues": ["Não foi possível baixar o HTML do site (bloqueio anti-bot ou indisponibilidade)."]}
+        tags = {"gtm_containers": [], "ga4_properties": [], "google_ads_ids": [], "meta_pixel_ids": [], "issues": ["Não foi possível baixar o HTML do site."]}
         forms_data = {"forms": [], "duplicated_cta_targets": []}
         usability_issues = []
 
-    # [5/5] Compilação dos Relatórios
-    progress.progress(95, text="📄 [5/5] Compilando visualização na tela e PDF...")
+    # [5/6] Inteligência Artificial Gemini
+    progress.progress(88, text="🤖 [5/6] Gemini AI gerando pareceres técnicos e resumo executivo...")
+    ai_insights = generate_ai_insights(
+        cliente=cliente, url=url,
+        pagespeed_mobile=ps_mobile, pagespeed_desktop=ps_desktop,
+        tags=tags, forms_data=forms_data,
+        usability_issues=usability_issues, broken_links=broken_links
+    )
+
+    # [6/6] Compilação dos Relatórios
+    progress.progress(98, text="📄 [6/6] Compilando visualização na tela e PDF...")
     
     html_report = build_html_report(
         cliente=cliente, url=url, is_ecommerce=is_ecommerce,
         pagespeed_mobile=ps_mobile, pagespeed_desktop=ps_desktop,
         tags=tags, forms_data=forms_data, usability_issues=usability_issues,
-        broken_links=broken_links
+        broken_links=broken_links, ai_insights=ai_insights
     )
 
     pdf_buffer = io.BytesIO()
@@ -90,7 +100,7 @@ if submitted:
         output_path=pdf_buffer, cliente=cliente, url=url, is_ecommerce=is_ecommerce,
         pagespeed_mobile=ps_mobile, pagespeed_desktop=ps_desktop,
         tags=tags, forms_data=forms_data, usability_issues=usability_issues,
-        broken_links=broken_links
+        broken_links=broken_links, ai_insights=ai_insights
     )
     pdf_buffer.seek(0)
     progress.progress(100, text="Concluído!")
@@ -109,5 +119,5 @@ if submitted:
         use_container_width=True
     )
 
-    st.subheader("📋 Preview do Relatório")
-    components.html(html_report, height=800, scrolling=True)
+    st.subheader("📋 Preview do Relatório com Análise por IA")
+    components.html(html_report, height=850, scrolling=True)
