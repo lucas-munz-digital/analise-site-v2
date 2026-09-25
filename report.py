@@ -13,29 +13,29 @@ from reportlab.platypus import (
 from reportlab.lib import colors
 from datetime import datetime
 
-# Nova Paleta Mestre Dark Mode
+# Paleta Mestre Dark Mode
 BG_DARK = colors.HexColor("#121212")
 CARD_BG = colors.HexColor("#1E1E1E")
 CARD_LIGHT = colors.HexColor("#292929")
 TEXT_WHITE = colors.HexColor("#FFFFFF")
 TEXT_MUTED = colors.HexColor("#A0A0A0")
 ACCENT_BLUE = colors.HexColor("#3B82F6")
-ACCENT_RED = colors.HexColor("#EF4444")
-ACCENT_YELLOW = colors.HexColor("#F59E0B")
-ACCENT_GREEN = colors.HexColor("#10B981")
 
 STYLES = getSampleStyleSheet()
 
-# Estilos Customizados para Widescreen
 STYLES.add(ParagraphStyle("DeckTitle", parent=STYLES["Normal"], fontSize=28, leading=34, textColor=TEXT_WHITE, fontName="Helvetica-Bold"))
 STYLES.add(ParagraphStyle("DeckSubTitle", parent=STYLES["Normal"], fontSize=16, leading=22, textColor=TEXT_MUTED))
 STYLES.add(ParagraphStyle("SlideHeader", parent=STYLES["Normal"], fontSize=18, leading=22, textColor=TEXT_WHITE, fontName="Helvetica-Bold"))
 STYLES.add(ParagraphStyle("SlideSubHeader", parent=STYLES["Normal"], fontSize=11, leading=15, textColor=TEXT_MUTED))
 STYLES.add(ParagraphStyle("CardTitle", parent=STYLES["Normal"], fontSize=12, leading=16, textColor=TEXT_WHITE, fontName="Helvetica-Bold"))
-STYLES.add(ParagraphStyle("CardBody", parent=STYLES["Normal"], fontSize=10, leading=14, textColor=TEXT_MUTED))
 STYLES.add(ParagraphStyle("CardBodyWhite", parent=STYLES["Normal"], fontSize=10, leading=14, textColor=TEXT_WHITE))
 STYLES.add(ParagraphStyle("ScoreVal", parent=STYLES["Normal"], fontSize=24, leading=28, textColor=TEXT_WHITE, fontName="Helvetica-Bold", alignment=TA_CENTER))
 STYLES.add(ParagraphStyle("ScoreLbl", parent=STYLES["Normal"], fontSize=9, leading=12, textColor=TEXT_MUTED, alignment=TA_CENTER))
+
+POSSIBLE_LOGOS = [
+    "agncia_mestre_logo.jpeg", "agncia_mestre_logo.jpg", 
+    "logo_mestre.jpg", "logo_mestre.jpeg", "logo_mestre.png"
+]
 
 
 def draw_slide_background(canvas, doc):
@@ -44,11 +44,11 @@ def draw_slide_background(canvas, doc):
     canvas.setFillColor(BG_DARK)
     canvas.rect(0, 0, doc.pagesize[0], doc.pagesize[1], fill=1, stroke=0)
     
-    # Desenha a Logo Mestre no canto superior direito caso o arquivo exista
-    if os.path.exists("logo_mestre.png"):
-        canvas.drawImage("logo_mestre.png", doc.pagesize[0] - 3.5 * cm, doc.pagesize[1] - 1.5 * cm, width=2.5 * cm, preserveAspectRatio=True, mask='auto')
+    logo_file = next((f for f in POSSIBLE_LOGOS if os.path.exists(f)), None)
     
-    # Linha decorativa de rodapé
+    if logo_file:
+        canvas.drawImage(logo_file, doc.pagesize[0] - 2.8 * cm, doc.pagesize[1] - 1.8 * cm, width=1.6 * cm, height=1.6 * cm, preserveAspectRatio=True)
+    
     canvas.setStrokeColor(CARD_BG)
     canvas.setLineWidth(1)
     canvas.line(1.5 * cm, 1.2 * cm, doc.pagesize[0] - 1.5 * cm, 1.2 * cm)
@@ -61,7 +61,6 @@ def draw_slide_background(canvas, doc):
 
 
 def _make_card(title, body, bg_color=CARD_BG, width=25*cm):
-    """Cria um card em bloco estilo o modelo de apresentações da Mestre."""
     content = []
     if title:
         content.append(Paragraph(f"<b>{title}</b>", STYLES["CardTitle"]))
@@ -87,7 +86,6 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
 
     ai = ai_insights or {}
 
-    # Define documento na orientação LANDSCAPE (16:9 Widescreen)
     doc = SimpleDocTemplate(
         output_path, 
         pagesize=landscape(A4),
@@ -98,25 +96,23 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
     )
     story = []
 
-    # =========================================================================
-    # SLIDE 1: Capa da Apresentação
-    # =========================================================================
-    story.append(Spacer(1, 2 * cm))
-    if os.path.exists("logo_mestre.png"):
-        story.append(Image("logo_mestre.png", width=5 * cm, height=2 * cm, kind='proportional'))
-        story.append(Spacer(1, 1 * cm))
+    # SLIDE 1: Capa
+    story.append(Spacer(1, 1 * cm))
+    logo_file = next((f for f in POSSIBLE_LOGOS if os.path.exists(f)), None)
+    
+    if logo_file:
+        story.append(Image(logo_file, width=3.2 * cm, height=3.2 * cm, kind='proportional'))
+        story.append(Spacer(1, 0.5 * cm))
     
     story.append(Paragraph("Análise do Site para Mídia", STYLES["DeckTitle"]))
     story.append(Spacer(1, 6))
     story.append(Paragraph(f"Projeto: <b>{cliente}</b>", STYLES["DeckSubTitle"]))
-    story.append(Paragraph(f"URL: {url}", STYLES["CardBody"]))
-    story.append(Spacer(1, 1 * cm))
-    story.append(Paragraph(datetime.now().strftime("Gerado em %d/%m/%Y"), STYLES["CardBody"]))
+    story.append(Paragraph(f"URL: {url}", STYLES["CardBodyWhite"]))
+    story.append(Spacer(1, 0.8 * cm))
+    story.append(Paragraph(datetime.now().strftime("Gerado em %d/%m/%Y"), STYLES["CardBodyWhite"]))
     story.append(PageBreak())
 
-    # =========================================================================
-    # SLIDE 2: Parecer Executivo (Análise por IA)
-    # =========================================================================
+    # SLIDE 2: Parecer Executivo
     story.append(Paragraph("01 | PARECER EXECUTIVO", STYLES["SlideSubHeader"]))
     story.append(Paragraph("Diagnóstico Geral de Mídia & Prontidão do Site", STYLES["SlideHeader"]))
     story.append(Spacer(1, 12))
@@ -125,7 +121,6 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
     story.append(_make_card("Visão Geral do Consultor Sênior", resumo, bg_color=CARD_BG, width=25*cm))
     story.append(Spacer(1, 10))
 
-    # Grid de destaques rápidos
     c1 = _make_card("Objetivo do Documento", "Detectar oportunidades de melhoria técnica e de CRO na Landing Page para maximizar o ROI e o Índice de Qualidade das campanhas de tráfego pago.", CARD_LIGHT, width=12*cm)
     c2 = _make_card("Legenda de Urgência", "🔴 <b>Atenção Imediata:</b> Impacta diretamente os resultados/conversões.<br/>🟡 <b>Médio/Longo Prazo:</b> Oportunidades para otimização contínua.", CARD_LIGHT, width=12.5*cm)
     
@@ -134,9 +129,7 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
     story.append(grid_table)
     story.append(PageBreak())
 
-    # =========================================================================
-    # SLIDE 3: Desempenho & Core Web Vitals (Mobile e Desktop)
-    # =========================================================================
+    # SLIDE 3: Performance
     story.append(Paragraph("02 | PERFORMANCE & CORE WEB VITALS", STYLES["SlideSubHeader"]))
     story.append(Paragraph("Desempenho do Site e Impacto no Custo por Clique (CPC)", STYLES["SlideHeader"]))
     story.append(Spacer(1, 10))
@@ -144,7 +137,6 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
     score_m = pagespeed_mobile.get("scores", {}).get("performance", "-")
     score_d = pagespeed_desktop.get("scores", {}).get("performance", "-")
 
-    # Score Cards
     sc_m = Table([[Paragraph(f"<b>{score_m}</b>", STYLES["ScoreVal"])], [Paragraph("Mobile Score", STYLES["ScoreLbl"])]], colWidths=[5*cm])
     sc_m.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), CARD_BG), ("PADDING", (0, 0), (-1, -1), 6)]))
 
@@ -159,15 +151,12 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
     story.append(scores_row)
     story.append(Spacer(1, 10))
 
-    # Oportunidades Mobile
     opps = pagespeed_mobile.get("opportunities", [])
     opp_text = "<br/>".join([f"• <b>{o['title']}</b>" for o in opps[:4]]) if opps else "Sem grandes oportunidades detectadas."
     story.append(_make_card("Principais Gargalos Detectados no Mobile", opp_text, CARD_LIGHT, width=25*cm))
     story.append(PageBreak())
 
-    # =========================================================================
-    # SLIDE 4: Infraestrutura de Tracking (GTM, GA4, Ads, Pixel)
-    # =========================================================================
+    # SLIDE 4: Tracking
     story.append(Paragraph("03 | MENSURAÇÃO & TRACKING", STYLES["SlideSubHeader"]))
     story.append(Paragraph("Auditoria do Ecossistema de Rastreamento de Tags", STYLES["SlideHeader"]))
     story.append(Spacer(1, 10))
@@ -176,7 +165,6 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
     story.append(_make_card("Diagnóstico de Tracking pelo Especialista", tags_ai, CARD_BG, width=25*cm))
     story.append(Spacer(1, 10))
 
-    # Tabela de Tags
     tag_rows = [
         [Paragraph("<b>Ferramenta</b>", STYLES["CardTitle"]), Paragraph("<b>IDs Identificados</b>", STYLES["CardTitle"])],
         [Paragraph("Google Tag Manager (GTM)", STYLES["CardBodyWhite"]), Paragraph(", ".join(tags.get("gtm_containers", [])) or "Não encontrado 🔴", STYLES["CardBodyWhite"])],
@@ -194,9 +182,7 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
     story.append(t_tags)
     story.append(PageBreak())
 
-    # =========================================================================
-    # SLIDE 5: Conversão & Formulários (CRO)
-    # =========================================================================
+    # SLIDE 5: Conversão & CRO
     story.append(Paragraph("04 | CONVERSÃO & CRO", STYLES["SlideSubHeader"]))
     story.append(Paragraph("Mapeamento de Captura de Leads e Thank You Pages", STYLES["SlideHeader"]))
     story.append(Spacer(1, 10))
