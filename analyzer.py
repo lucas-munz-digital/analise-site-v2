@@ -34,11 +34,7 @@ OPPORTUNITIES_MAP = {
     "Defer offscreen images": "Adiar o carregamento de imagens fora da tela (Lazy Loading)",
 }
 
-# ---------------------------------------------------------------------------
-# 1. PAGESPEED
-# ---------------------------------------------------------------------------
 def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> dict:
-    """Chama a API do Google PageSpeed Insights com resiliência contra erros internos do Lighthouse."""
     api_key = api_key or os.environ.get("PAGESPEED_API_KEY") or DEFAULT_PAGESPEED_API_KEY
     categories = ["performance"] if strategy == "mobile" else ["performance", "seo"]
 
@@ -69,16 +65,6 @@ def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> di
                 break
             elif "error" in res_json:
                 last_error = res_json["error"].get("message", "Erro na API do Google")
-        except requests.exceptions.Timeout:
-            last_error = f"Tempo limite excedido ({TIMEOUT_PAGESPEED}s)."
-        except requests.exceptions.HTTPError as e:
-            if e.response is not None and e.response.status_code == 429:
-                return {"error": "Cota da API do PageSpeed excedida (erro 429)."}
-            try:
-                err_data = e.response.json()
-                last_error = err_data.get("error", {}).get("message", str(e))
-            except Exception:
-                last_error = str(e)
         except Exception as e:
             last_error = str(e)
 
@@ -107,22 +93,13 @@ def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> di
     
     if perf_score is not None:
         if perf_score < 80:
-            interpretation = {
-                "level": "red",
-                "text": "Melhorias no desempenho necessárias para que as campanhas obtenham melhores resultados."
-            }
+            interpretation = {"level": "red", "text": "Melhorias no desempenho necessárias para campanhas."}
         elif 80 <= perf_score <= 90:
-            interpretation = {
-                "level": "orange",
-                "text": "Pontuação positiva, porém com oportunidades de melhorias."
-            }
+            interpretation = {"level": "orange", "text": "Pontuação positiva, com oportunidades de melhoria."}
         else:
-            interpretation = {
-                "level": "none",
-                "text": "Boa pontuação! Sem grandes melhorias encontradas, detalhamento abaixo para que verifique as oportunidades."
-            }
+            interpretation = {"level": "none", "text": "Boa pontuação!"}
     else:
-        interpretation = {"level": "none", "text": "Pontuação de performance indisponível."}
+        interpretation = {"level": "none", "text": "Pontuação indisponível."}
 
     opportunities = []
     for key, audit in audits.items():
@@ -155,9 +132,6 @@ def get_pagespeed(url: str, strategy: str = "mobile", api_key: str = None) -> di
         "opportunities": opportunities[:6],
     }
 
-# ---------------------------------------------------------------------------
-# 2. FETCH HTML, LINKS QUEBRADOS & CONTEXTO DA PÁGINA (COPY/CRO)
-# ---------------------------------------------------------------------------
 def fetch_html(url: str) -> str:
     headers = {**UA_HEADERS, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
     resp = requests.get(url, headers=headers, timeout=TIMEOUT_HTTP, allow_redirects=True)
@@ -165,9 +139,7 @@ def fetch_html(url: str) -> str:
     return resp.text
 
 def extract_page_context(html: str) -> dict:
-    """Extrai títulos, meta description e CTAs para dar contexto de UX/CRO à IA."""
     soup = BeautifulSoup(html, "html.parser")
-    
     title = soup.find("title")
     title_text = title.text.strip() if title else ""
 
@@ -180,7 +152,7 @@ def extract_page_context(html: str) -> dict:
     cta_buttons = []
     for elem in soup.find_all(["a", "button"]):
         txt = elem.get_text().strip()
-        if txt and len(txt) < 50 and any(w in txt.lower() for w in ["comprar", "contratar", "solicitar", "falar", "whatsapp", "orçamento", "saiba mais", "inscreva"]):
+        if txt and len(txt) < 50 and any(w in txt.lower() for w in ["comprar", "contratar", "solicitar", "falar", "whatsapp", "orçamento", "saiba mais"]):
             cta_buttons.append(txt)
 
     return {
@@ -226,48 +198,29 @@ def fetch_gtm_containers_content(html: str) -> str:
             continue
     return "\n".join(chunks)
 
-# ---------------------------------------------------------------------------
-# 3. TAGS
-# ---------------------------------------------------------------------------
 def detect_tags(html: str, gtm_js_content: str = "") -> dict:
     combined = html + "\n" + gtm_js_content
-
     ga4_html_only = set(re.findall(r"\bG-[A-Z0-9]{6,}\b", html))
     ads_html_only = set(re.findall(r"\bAW-[0-9]{5,}\b", html))
 
     pixel_matches = re.findall(r"fbq\(\\?['\"]init\\?['\"],\s*\\?['\"](\d{13,16})\\?['\"]", combined)
     pixel_matches += re.findall(r"id=(\d{13,16})", combined)
 
-    meta_pixels = sorted(set(pixel_matches))
-
     findings = {
         "gtm_containers": sorted(set(re.findall(r"GTM-[A-Z0-9]+", html))),
         "ga4_properties": sorted(set(re.findall(r"\bG-[A-Z0-9]{6,}\b", combined))),
         "google_ads_ids": sorted(set(re.findall(r"\bAW-[0-9]{5,}\b", combined))),
-        "meta_pixel_ids": meta_pixels,
-        "gtag_ids": sorted(set(re.findall(r"\bGT-[A-Z0-9]+\b", combined))),
+        "meta_pixel_ids": sorted(set(pixel_matches)),
     }
 
-    findings["ga4_only_via_gtm"] = sorted(set(findings["ga4_properties"]) - ga4_html_only)
-    findings["google_ads_only_via_gtm"] = sorted(set(findings["google_ads_ids"]) - ads_html_only)
-
     issues = []
-    total_ads_conversions = len(findings["google_ads_ids"])
     if len(findings["gtm_containers"]) > 1:
-        issues.append(f"Mais de um contêiner GTM encontrado ({', '.join(findings['gtm_containers'])}) — pode gerar disparo duplicado de eventos.")
-    if len(findings["ga4_properties"]) > 1:
-        issues.append(f"Mais de uma propriedade GA4 encontrada ({', '.join(findings['ga4_properties'])}) — verificar qual é a ativa.")
-    if total_ads_conversions >= 3:
-        issues.append(f"{total_ads_conversions} IDs de Google Ads disparando simultaneamente — recomenda-se mapear origem e remover inativos.")
+        issues.append(f"Mais de um contêiner GTM encontrado ({', '.join(findings['gtm_containers'])})")
     if not findings["gtm_containers"] and not findings["ga4_properties"] and not findings["google_ads_ids"] and not findings["meta_pixel_ids"]:
-        detail = " (nenhum container GTM encontrado para checar tags internas)" if not gtm_js_content else ""
-        issues.append(f"Nenhuma tag de rastreamento (GTM/GA4/Google Ads/Meta) foi detectada{detail}.")
+        issues.append("Nenhuma tag de rastreamento foi detectada.")
     findings["issues"] = issues
     return findings
 
-# ---------------------------------------------------------------------------
-# 4. FORMULÁRIOS & PÁGINAS DE AGRADECIMENTO
-# ---------------------------------------------------------------------------
 def detect_forms(html: str, base_url: str) -> list:
     soup = BeautifulSoup(html, "html.parser")
     forms = []
@@ -276,23 +229,16 @@ def detect_forms(html: str, base_url: str) -> list:
     for form in soup.find_all("form"):
         action = form.get("action", "") or "(mesma página)"
         action_abs = urljoin(base_url, action) if action != "(mesma página)" else action
-        fields = []
-        for field in form.find_all(["input", "textarea", "select"]):
-            ftype = field.get("type", field.name)
-            fname = field.get("name") or field.get("id") or "(sem nome)"
-            if ftype not in ("hidden", "submit", "button"):
-                fields.append(f"{fname} ({ftype})")
+        fields = [f.get("name") or f.get("id") or "campo" for f in form.find_all(["input", "textarea", "select"]) if f.get("type") not in ("hidden", "submit", "button")]
 
         destino = "desconhecido"
         low = action_abs.lower()
         has_thank_you_page = any(w in low for w in ["obrigad", "thank", "sucesso", "agradec"])
 
-        if "wa.me" in low or "whatsapp" in low or "api.whatsapp" in low:
-            destino = "WhatsApp (fora do CRM)"
-        elif "mailto:" in low:
-            destino = "e-mail direto"
+        if "wa.me" in low or "whatsapp" in low:
+            destino = "WhatsApp"
         elif action_abs == "(mesma página)":
-            destino = "mesma página (verificar JS de submit / webhook)"
+            destino = "mesma página"
         else:
             destino = "endpoint externo"
 
@@ -308,80 +254,26 @@ def detect_forms(html: str, base_url: str) -> list:
         form_id_counter += 1
 
     rd_scripts = re.findall(r'd335luupugsy2\.cloudfront\.net.*?/([a-f0-9-]+)\.js', html)
-    rd_forms_embed = soup.find_all(attrs={"data-rd-form": True}) or re.findall(r'RDStation\.Form\s*\(', html)
-    
-    if rd_scripts or rd_forms_embed or "rdstation" in html.lower():
-        has_rd_thank_you = bool(re.search(r'(redirect_to|url_retorno|obrigad|thank|sucesso)', html, re.I))
-        
+    if rd_scripts or "rdstation" in html.lower():
         forms.append({
             "id": form_id_counter,
-            "tipo": "RD Station / Pop-up de Automação",
-            "fields": ["Campos carregados via script RD Station"],
-            "action": "Endpoint da RD Station (d335luupugsy2.cloudfront.net)",
-            "destino": "CRM / Automação RD Station",
+            "tipo": "RD Station / Automação",
+            "fields": ["Campos RD Station"],
+            "action": "Endpoint RD Station",
+            "destino": "CRM RD Station",
             "num_campos": 1,
-            "has_thank_you_page": has_rd_thank_you
+            "has_thank_you_page": bool(re.search(r'(redirect_to|url_retorno|obrigad)', html, re.I))
         })
-        form_id_counter += 1
 
-    for iframe in soup.find_all("iframe", src=True):
-        src = iframe.get("src", "").lower()
-        if any(w in src for w in ["typeform", "hubspot", "activecampaign", "form"]):
-            forms.append({
-                "id": form_id_counter,
-                "tipo": "Formulário Externo (iFrame)",
-                "fields": ["Campos dentro do iFrame"],
-                "action": iframe.get("src"),
-                "destino": "Plataforma de Terceiros (iFrame)",
-                "num_campos": 1,
-                "has_thank_you_page": any(w in src for w in ["obrigad", "thank", "sucesso"])
-            })
-            form_id_counter += 1
+    return {"forms": forms}
 
-    ctas = [a.get("href") for a in soup.find_all("a", href=True) if any(w in (a.get_text() or "").lower() for w in
-            ["orçamento", "cotação", "contrat", "solicit", "comprar", "fale conosco", "saiba mais"])]
-    duplicated_ctas = {href for href in ctas if ctas.count(href) > 1 and href not in ("#", "")}
-
-    return {"forms": forms, "duplicated_cta_targets": sorted(duplicated_ctas)}
-
-# ---------------------------------------------------------------------------
-# 5. USABILIDADE / DESIGN
-# ---------------------------------------------------------------------------
 def detect_usability_issues(html: str, base_url: str) -> list:
     soup = BeautifulSoup(html, "html.parser")
     issues = []
 
     if not soup.find("meta", attrs={"name": "viewport"}):
-        issues.append(("critico", "Página sem meta tag viewport — pode quebrar a responsividade em mobile."))
-
-    title = soup.find("title")
-    if not title or not title.text.strip():
-        issues.append(("critico", "Página sem <title> definido — impacta SEO e CTR nos resultados de busca."))
-
-    meta_desc = soup.find("meta", attrs={"name": "description"})
-    if not meta_desc or not meta_desc.get("content", "").strip():
-        issues.append(("medio", "Meta description ausente ou vazia."))
-
-    imgs = soup.find_all("img")
-    sem_alt = [i for i in imgs if not i.get("alt", "").strip()]
-    if imgs and len(sem_alt) / len(imgs) > 0.3:
-        pct = round(len(sem_alt) / len(imgs) * 100)
-        issues.append(("medio", f"{pct}% das imagens ({len(sem_alt)}/{len(imgs)}) estão sem atributo alt — afeta acessibilidade e SEO."))
-
-    parsed = urlparse(base_url)
-    if parsed.scheme != "https":
-        issues.append(("critico", "Site não está servindo em HTTPS."))
-
-    if not soup.find("link", attrs={"rel": re.compile("icon", re.I)}):
-        issues.append(("baixo", "Favicon não encontrado."))
-
-    if re.search(r'data-count(er)?=["\']?\d+', html, re.I) or re.search(r'class=["\'][^"\']*counter[^"\']*["\']', html, re.I):
-        issues.append(("baixo", "Foram encontrados elementos de contador animado (counters) — validar manualmente se carregam com valor final visível caso o JS falhe."))
-
-    h1s = soup.find_all("h1")
-    if len(h1s) == 0:
-        issues.append(("medio", "Nenhum H1 encontrado na página."))
-    elif len(h1s) > 1:
-        issues.append(("baixo", f"{len(h1s)} tags H1 encontradas — o ideal é apenas uma por página."))
+        issues.append(("critico", "Página sem meta tag viewport."))
+    if not soup.find("title"):
+        issues.append(("critico", "Página sem tag <title>."))
 
     return issues
