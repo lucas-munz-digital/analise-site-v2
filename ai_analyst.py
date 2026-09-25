@@ -1,7 +1,7 @@
 """
 Módulo de análise por IA usando o Google Gemini.
 Gera pareceres profundos de UX/CRO e Mídia Paga com persona Sênior.
-Inclui retentativa resiliente para evitar erros de oscilação/alta demanda (503).
+Atualizado para utilizar exclusivamente modelos homologados da linha 3.x.
 """
 import os
 import json
@@ -11,18 +11,22 @@ from google.genai import types
 
 DEFAULT_GEMINI_API_KEY = "AIzaSyBuvA0OE36shPYEkoGY886S-Lii6Tb8INk"
 
+# Lista de modelos atualizada conforme as diretrizes atuais da API do Google (2026)
 MODELS_TO_TRY = [
     'gemini-3.8-flash',
-    'gemini-3-flash',
-    'gemini-2.5-flash'
+    'gemini-3-flash'
 ]
+
 
 def generate_ai_insights(cliente: str, url: str, pagespeed_mobile: dict, 
                          pagespeed_desktop: dict, tags: dict, 
                          forms_data: dict, usability_issues: list, 
                          broken_links: list = None, page_context: dict = None,
                          api_key: str = None) -> dict:
-
+    """
+    Combina as métricas técnicas e o contexto comercial da página para gerar
+    análises estratégicas profundas através do Gemini.
+    """
     gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or DEFAULT_GEMINI_API_KEY
 
     try:
@@ -79,6 +83,7 @@ DIRETRIZES DE RESPOSTA (Gere ESTRITAMENTE um objeto JSON com estas chaves):
 
     last_exception = None
 
+    # Tenta enviar a requisição utilizando os modelos 3.x com pausa em caso de alta demanda
     for model_name in MODELS_TO_TRY:
         for attempt in range(2):
             try:
@@ -94,6 +99,7 @@ DIRETRIZES DE RESPOSTA (Gere ESTRITAMENTE um objeto JSON com estas chaves):
                     return json.loads(response.text)
             except Exception as e:
                 last_exception = e
+                # Pausa incremental caso o servidor oscile
                 time.sleep(2 * (attempt + 1))
 
     return _fallback_response(str(last_exception))
