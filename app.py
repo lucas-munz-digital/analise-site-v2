@@ -21,11 +21,17 @@ except Exception:
 
 st.set_page_config(page_title="Análise do Site para Mídia — Agência Mestre", page_icon="⚡", layout="wide")
 
-# Exibição da Logo e Título
-col_logo, col_title = st.columns([1, 5])
+# Exibição da Logo JPG/PNG e Título
+col_logo, col_title = st.columns([1, 4])
 with col_logo:
-    if os.path.exists("logo_mestre.png"):
-        st.image("logo_mestre.png", width=120)
+    possible_logos = [
+        "agncia_mestre_logo.jpeg", "agncia_mestre_logo.jpg", 
+        "logo_mestre.jpg", "logo_mestre.jpeg", "logo_mestre.png"
+    ]
+    logo_path = next((f for f in possible_logos if os.path.exists(f)), None)
+    
+    if logo_path:
+        st.image(logo_path, width=110)
     else:
         st.markdown("### **MESTRE**")
 
@@ -89,7 +95,7 @@ if submitted:
         forms_data = {"forms": [], "duplicated_cta_targets": []}
         usability_issues = []
 
-    # [5/6] Inteligência Artificial Gemini (Persona Sênior)
+    # [5/6] Inteligência Artificial Gemini
     progress.progress(88, text="🤖 [5/6] Gemini AI formulando diagnósticos de Mídia e CRO...")
     ai_insights = generate_ai_insights(
         cliente=cliente, url=url,
