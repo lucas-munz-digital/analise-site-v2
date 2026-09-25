@@ -1,7 +1,7 @@
 """
 Módulo de análise por IA usando o Google Gemini.
 Gera pareceres profundos de UX/CRO e Mídia Paga com persona Sênior.
-Inclui retentativa resiliente com exponenciação de tempo e fallback automático de modelos.
+Classifica cada pilar com status 'vermelho' (impede/prejudica anúncios) ou 'amarelo' (melhoria sem bloqueio).
 """
 import os
 import json
@@ -11,7 +11,6 @@ from google.genai import types
 
 DEFAULT_GEMINI_API_KEY = "AIzaSyBuvA0OE36shPYEkoGY886S-Lii6Tb8INk"
 
-# Lista de modelos válidos para fallback automático em ordem de preferência
 MODELS_TO_TRY = [
     'gemini-3.8-flash',
     'gemini-3.5-flash',
@@ -24,10 +23,7 @@ def generate_ai_insights(cliente: str, url: str, pagespeed_mobile: dict,
                          forms_data: dict, usability_issues: list, 
                          broken_links: list = None, page_context: dict = None,
                          api_key: str = None) -> dict:
-    """
-    Combina as métricas técnicas e o contexto comercial da página para gerar
-    análises estratégicas profundas através do Gemini.
-    """
+
     gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or DEFAULT_GEMINI_API_KEY
 
     try:
@@ -56,35 +52,32 @@ def generate_ai_insights(cliente: str, url: str, pagespeed_mobile: dict,
     }
 
     prompt = f"""
-Sua persona: Você é o Diretor de Mídia Paga e CRO/UX Sênior da Agência Mestre. Sua experiência abrange a gestão de milhões de reais em tráfego pago (Google Ads, Meta Ads) e a otimização de Landing Pages de alta conversão.
+Sua persona: Você é o Diretor de Mídia Paga e CRO/UX Sênior da Agência Mestre.
 
-Sua missão: Analisar os dados técnicos e mercadológicos da auditoria abaixo e emitir um parecer estratégico profundo, humano e altamente profissional. Evite generalidades; fundamente suas observações considerando o modelo de negócio inferido pelos títulos, meta description e CTAs da página.
+Sua missão: Analisar os dados técnicos e mercadológicos abaixo e emitir pareceres estratégicos para cada pilar.
 
-DADOS COMPLETOS DA AUDITORIA:
+DADOS DA AUDITORIA:
 {json.dumps(audit_payload, ensure_ascii=False, indent=2)}
 
-DIRETRIZES DE RESPOSTA (Gere ESTRITAMENTE um objeto JSON com estas chaves):
+REGRAS DE CATEGORIZAÇÃO DE STATUS (Defina obrigatoriamente "vermelho" ou "amarelo" para cada pilar):
+- "vermelho": O item impacta diretamente a veiculação dos anúncios, reduz o Índice de Qualidade/algoritmo, gera perda de rastreamento/conversão ou cria lentidão crítica que perde tráfego pago.
+- "amarelo": Há oportunidade clara de melhoria, mas a falha NÃO impede a veiculação nem destrói a coleta principal de dados de imediato.
 
-1. "resumo_executivo": 
-   - Um parecer de 4 a 5 linhas para o C-Level da empresa.
-   - Avalie se a página está pronta para escalar tráfego pago. Seja direto sobre riscos financeiros (CPC alto, perda de conversão) decorrentes das falhas encontradas.
+DIRETRIZES DE RESPOSTA (Gere ESTRITAMENTE um objeto JSON válido):
 
-2. "consideracoes_desempenho":
-   - Análise detalhada do impacto do FCP, LCP e score mobile na experiência do usuário e no Índice de Qualidade das campanhas.
-   - Explique exatamente como a lentidão mobile afeta o custo por lead (CPL) e a retenção do tráfego vindo dos anúncios.
-
-3. "consideracoes_tags":
-   - Avalie a robustez da infraestrutura de dados (GA4, GTM, Meta Pixel, Google Ads).
-   - Indique riscos específicos de perda de atribuição, invisibilidade das conversões nas plataformas de tráfego pago ou duplicidade de eventos.
-
-4. "consideracoes_conversao":
-   - Analise os formulários, iFrames e botões de CTA sob a ótica de UX/CRO.
-   - Comente sobre a presença ou ausência de Thank You Page e oriente sobre as melhores práticas para que a equipe de mídia possa otimizar as campanhas por meta de conversão real.
+{{
+  "resumo_executivo": "Parecer geral de 4-5 linhas para o C-Level avaliando se o site pode receber escala de tráfego pago.",
+  "consideracoes_desempenho": "Análise técnica do impacto do FCP, LCP e score mobile na Mídia Paga.",
+  "status_desempenho": "vermelho ou amarelo",
+  "consideracoes_tags": "Análise da infraestrutura de tracking (GTM, GA4, Meta, Ads) e perda de atribuição.",
+  "status_tags": "vermelho ou amarelo",
+  "consideracoes_conversao": "Análise de formulários, RD Station, CTAs e Thank You Pages sob a ótica de CRO.",
+  "status_conversao": "vermelho ou amarelo"
+}}
 """
 
     last_exception = None
 
-    # Tenta cada modelo com retentativas e tempo de pausa antes de desistir
     for model_name in MODELS_TO_TRY:
         for attempt in range(3):
             try:
@@ -100,7 +93,6 @@ DIRETRIZES DE RESPOSTA (Gere ESTRITAMENTE um objeto JSON com estas chaves):
                     return json.loads(response.text)
             except Exception as e:
                 last_exception = e
-                # Pausa progressiva para aguardar a liberação de slots nos servidores (2s, 4s, 6s)
                 time.sleep(2 * (attempt + 1))
 
     return _fallback_response(str(last_exception))
@@ -110,6 +102,9 @@ def _fallback_response(err_msg: str) -> dict:
     return {
         "resumo_executivo": f"Análise técnica concluída. O parecer estratégico por IA está temporariamente indisponível ({err_msg}).",
         "consideracoes_desempenho": "Analise as métricas de LCP/FCP no quadro abaixo para identificar gargalos de velocidade.",
+        "status_desempenho": "vermelho",
         "consideracoes_tags": "Verifique a lista de tags e alertas do GTM para garantir o correto rastreamento de conversão.",
-        "consideracoes_conversao": "Verifique a tabela de formulários e a existência de Thank You Page para alinhar o disparo de eventos no CRM."
+        "status_tags": "amarelo",
+        "consideracoes_conversao": "Verifique a tabela de formulários e a existência de Thank You Page para alinhar o disparo de eventos no CRM.",
+        "status_conversao": "vermelho"
     }
