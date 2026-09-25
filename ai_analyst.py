@@ -1,7 +1,7 @@
 """
 Módulo de análise por IA usando o Google Gemini.
 Gera pareceres profundos de UX/CRO e Mídia Paga com persona Sênior.
-Atualizado para utilizar exclusivamente modelos homologados da linha 3.x.
+Atualizado para utilizar exclusivamente o modelo oficial gemini-3.8-flash.
 """
 import os
 import json
@@ -11,11 +11,8 @@ from google.genai import types
 
 DEFAULT_GEMINI_API_KEY = "AIzaSyBuvA0OE36shPYEkoGY886S-Lii6Tb8INk"
 
-# Lista de modelos atualizada conforme as diretrizes atuais da API do Google (2026)
-MODELS_TO_TRY = [
-    'gemini-3.8-flash',
-    'gemini-3-flash'
-]
+# Modelo oficial homologado
+TARGET_MODEL = 'gemini-3.8-flash'
 
 
 def generate_ai_insights(cliente: str, url: str, pagespeed_mobile: dict, 
@@ -83,24 +80,22 @@ DIRETRIZES DE RESPOSTA (Gere ESTRITAMENTE um objeto JSON com estas chaves):
 
     last_exception = None
 
-    # Tenta enviar a requisição utilizando os modelos 3.x com pausa em caso de alta demanda
-    for model_name in MODELS_TO_TRY:
-        for attempt in range(2):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        temperature=0.3
-                    )
+    # Tenta até 3 vezes com pausa em caso de oscilação/alta demanda no servidor
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model=TARGET_MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.3
                 )
-                if response and response.text:
-                    return json.loads(response.text)
-            except Exception as e:
-                last_exception = e
-                # Pausa incremental caso o servidor oscile
-                time.sleep(2 * (attempt + 1))
+            )
+            if response and response.text:
+                return json.loads(response.text)
+        except Exception as e:
+            last_exception = e
+            time.sleep(2 * (attempt + 1))
 
     return _fallback_response(str(last_exception))
 
