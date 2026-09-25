@@ -1,17 +1,15 @@
 """
 App web da ferramenta de análise técnica de sites — Agência Mestre.
-Roda com: streamlit run app.py
+Gera relatórios em HTML Widescreen (Presentation Deck) nativo.
 """
 import streamlit as st
 import streamlit.components.v1 as components
-import io
 import os
 import re
 from analyzer import (get_pagespeed, fetch_html, extract_page_context, check_broken_links, fetch_gtm_containers_content,
                        detect_tags, detect_forms, detect_usability_issues,
                        DEFAULT_PAGESPEED_API_KEY)
 from ai_analyst import generate_ai_insights
-from report import build_pdf
 from report_html import build_html_report
 
 try:
@@ -21,15 +19,10 @@ except Exception:
 
 st.set_page_config(page_title="Análise do Site para Mídia — Agência Mestre", page_icon="⚡", layout="wide")
 
-# Exibição da Logo JPG/PNG e Título
 col_logo, col_title = st.columns([1, 4])
 with col_logo:
-    possible_logos = [
-        "agncia_mestre_logo.jpeg", "agncia_mestre_logo.jpg", 
-        "logo_mestre.jpg", "logo_mestre.jpeg", "logo_mestre.png"
-    ]
+    possible_logos = ["agncia_mestre_logo.jpeg", "agncia_mestre_logo.jpg", "logo_mestre.jpg", "logo_mestre.png"]
     logo_path = next((f for f in possible_logos if os.path.exists(f)), None)
-    
     if logo_path:
         st.image(logo_path, width=110)
     else:
@@ -57,20 +50,15 @@ if submitted:
 
     url = url_input if url_input.startswith("http") else f"https://{url_input}"
 
-    st.info("⏱️ **Tempo estimado:** A análise técnica e compilação do deck leva cerca de **1 a 2 minutos**. Aguarde.")
-
     progress = st.progress(0, text="Iniciando auditoria...")
 
-    # [1/6] PageSpeed Mobile
-    progress.progress(10, text="⏳ [1/6] Auditando PageSpeed Mobile...")
+    progress.progress(15, text="⏳ Auditando PageSpeed Mobile...")
     ps_mobile = get_pagespeed(url, "mobile", api_key=PAGESPEED_API_KEY)
 
-    # [2/6] PageSpeed Desktop
-    progress.progress(35, text="⏳ [2/6] Auditando PageSpeed Desktop...")
+    progress.progress(40, text="⏳ Auditando PageSpeed Desktop...")
     ps_desktop = get_pagespeed(url, "desktop", api_key=PAGESPEED_API_KEY)
 
-    # [3/6] HTML & Contexto CRO
-    progress.progress(60, text="🔍 [3/6] Mapeando estrutura da Landing Page e links...")
+    progress.progress(60, text="🔍 Mapeando estrutura e links...")
     try:
         html = fetch_html(url)
         html_ok = True
@@ -82,8 +70,7 @@ if submitted:
         page_context = {}
         broken_links = []
 
-    # [4/6] Tags & Formulários
-    progress.progress(75, text="📊 [4/6] Identificando tags de rastreamento e formulários...")
+    progress.progress(75, text="📊 Identificando tags e formulários...")
     gtm_js_content = fetch_gtm_containers_content(html) if html_ok else ""
 
     if html_ok:
@@ -92,11 +79,10 @@ if submitted:
         usability_issues = detect_usability_issues(html, url)
     else:
         tags = {"gtm_containers": [], "ga4_properties": [], "google_ads_ids": [], "meta_pixel_ids": [], "issues": ["Não foi possível baixar o HTML."]}
-        forms_data = {"forms": [], "duplicated_cta_targets": []}
+        forms_data = {"forms": []}
         usability_issues = []
 
-    # [5/6] Inteligência Artificial Gemini
-    progress.progress(88, text="🤖 [5/6] Gemini AI formulando diagnósticos de Mídia e CRO...")
+    progress.progress(88, text="🤖 Gemini AI formulando pareceres estratégicos...")
     ai_insights = generate_ai_insights(
         cliente=cliente, url=url,
         pagespeed_mobile=ps_mobile, pagespeed_desktop=ps_desktop,
@@ -105,39 +91,28 @@ if submitted:
         page_context=page_context
     )
 
-    # [6/6] Compilação no novo layout Dark Deck 16:9
-    progress.progress(98, text="📄 [6/6] Gerando Deck de Slides em PDF...")
-    
+    progress.progress(98, text="📄 Compilando Presentation Deck HTML...")
     html_report = build_html_report(
         cliente=cliente, url=url, is_ecommerce=is_ecommerce,
         pagespeed_mobile=ps_mobile, pagespeed_desktop=ps_desktop,
         tags=tags, forms_data=forms_data, usability_issues=usability_issues,
         broken_links=broken_links, ai_insights=ai_insights
     )
-
-    pdf_buffer = io.BytesIO()
-    build_pdf(
-        output_path=pdf_buffer, cliente=cliente, url=url, is_ecommerce=is_ecommerce,
-        pagespeed_mobile=ps_mobile, pagespeed_desktop=ps_desktop,
-        tags=tags, forms_data=forms_data, usability_issues=usability_issues,
-        broken_links=broken_links, ai_insights=ai_insights
-    )
-    pdf_buffer.seek(0)
     progress.progress(100, text="Concluído!")
 
-    st.success("Análise gerada com sucesso no novo padrão visual da Agência Mestre!")
+    st.success("Relatório gerado com sucesso!")
 
     slug = re.sub(r"[^\w\s-]", "", cliente).strip().lower()
     slug = re.sub(r"[\s]+", "-", slug)
-    
+
     st.download_button(
-        label="📄 Baixar Apresentação (PDF Deck 16:9)",
-        data=pdf_buffer,
-        file_name=f"analise-site-midia-{slug}.pdf",
-        mime="application/pdf",
+        label="🌐 Baixar Relatório HTML (Deck 16:9 Nativo)",
+        data=html_report,
+        file_name=f"analise-site-midia-{slug}.html",
+        mime="text/html",
         type="primary",
         use_container_width=True
     )
 
-    st.subheader("📋 Preview da Apresentação (Layout Dark Deck)")
+    st.subheader("📋 Presentation Deck Interativo")
     components.html(html_report, height=800, scrolling=True)
