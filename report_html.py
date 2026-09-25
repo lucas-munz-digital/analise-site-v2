@@ -41,7 +41,6 @@ def build_html_report(cliente: str, url: str, is_ecommerce: bool,
 </head>
 <body>
 
-<!-- SLIDE 1: CAPA -->
 <div class="slide">
     <div class="tag-section">AGÊNCIA MESTRE | RELATÓRIO EXECUTIVO</div>
     <h1>Análise do Site para Mídia</h1>
@@ -49,7 +48,6 @@ def build_html_report(cliente: str, url: str, is_ecommerce: bool,
     <div class="footer-slide"><span>Gerado em {now_str}</span><span>Slide 1</span></div>
 </div>
 
-<!-- SLIDE 2: PARECER EXECUTIVO -->
 <div class="slide">
     <div class="tag-section">01 | PARECER EXECUTIVO</div>
     <h2>Diagnóstico Geral de Mídia & CRO</h2>
@@ -70,7 +68,6 @@ def build_html_report(cliente: str, url: str, is_ecommerce: bool,
     <div class="footer-slide"><span>Agência Mestre</span><span>Slide 2</span></div>
 </div>
 
-<!-- SLIDE 3: PERFORMANCE -->
 <div class="slide">
     <div class="tag-section">02 | PERFORMANCE</div>
     <h2>Desempenho & Core Web Vitals</h2>
@@ -85,7 +82,6 @@ def build_html_report(cliente: str, url: str, is_ecommerce: bool,
     <div class="footer-slide"><span>Agência Mestre</span><span>Slide 3</span></div>
 </div>
 
-<!-- SLIDE 4: TRACKING -->
 <div class="slide">
     <div class="tag-section">03 | TRACKING & MENSURAÇÃO</div>
     <h2>Auditoria do Ecossistema de Rastreamento</h2>
