@@ -1,7 +1,7 @@
 """
 Módulo de análise por IA usando o Google Gemini.
 Gera pareceres profundos de UX/CRO e Mídia Paga com persona Sênior.
-Inclui sistema de retry automático e fallback entre modelos para evitar erro 503.
+Atualizado para utilizar a linha de modelos gemini-3.8-flash.
 """
 import os
 import json
@@ -11,12 +11,8 @@ from google.genai import types
 
 DEFAULT_GEMINI_API_KEY = "AIzaSyBuvA0OE36shPYEkoGY886S-Lii6Tb8INk"
 
-# Lista de modelos por ordem de preferência para fallback automático
-CANDIDATE_MODELS = [
-    'gemini-2.5-flash',
-    'gemini-1.5-flash',
-    'gemini-2.0-flash'
-]
+# Modelo atualizado conforme especificação da API do Google
+PRIMARY_MODEL = 'gemini-3.8-flash'
 
 
 def generate_ai_insights(cliente: str, url: str, pagespeed_mobile: dict, 
@@ -30,7 +26,10 @@ def generate_ai_insights(cliente: str, url: str, pagespeed_mobile: dict,
     """
     gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or DEFAULT_GEMINI_API_KEY
 
-    client = genai.Client(api_key=gemini_key)
+    try:
+        client = genai.Client(api_key=gemini_key)
+    except Exception as e:
+        return _fallback_response(f"Erro ao inicializar cliente Gemini: {str(e)}")
 
     audit_payload = {
         "cliente": cliente,
@@ -87,28 +86,29 @@ DIRETRIZES DE RESPOSTA (Gere ESTRITAMENTE um objeto JSON com estas chaves):
 
     last_exception = None
 
-    # Tenta executar nos modelos em ordem de prioridade com retries caso haja erro 503
-    for model_name in CANDIDATE_MODELS:
-        for attempt in range(2): # 2 tentativas por modelo
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        temperature=0.3
-                    )
+    # Tenta até 3 vezes no modelo gemini-3.8-flash com pausa em caso de oscilação do servidor
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model=PRIMARY_MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.3
                 )
-                if response and response.text:
-                    return json.loads(response.text)
-            except Exception as e:
-                last_exception = e
-                # Se for erro de alta demanda (503/429), aguarda 2 segundos antes de tentar novamente ou trocar de modelo
-                time.sleep(2)
+            )
+            if response and response.text:
+                return json.loads(response.text)
+        except Exception as e:
+            last_exception = e
+            time.sleep(2 * (attempt + 1)) # Pausa incremental (2s, 4s)
 
-    # Caso todos os modelos falhem
+    return _fallback_response(str(last_exception))
+
+
+def _fallback_response(err_msg: str) -> dict:
     return {
-        "resumo_executivo": f"Análise técnica concluída. O parecer estratégico por IA está temporariamente indisponível devido a alto tráfego nos servidores do Google ({str(last_exception)}).",
+        "resumo_executivo": f"Análise técnica concluída. O parecer estratégico por IA está temporariamente indisponível ({err_msg}).",
         "consideracoes_desempenho": "Analise as métricas de LCP/FCP no quadro abaixo para identificar gargalos de velocidade.",
         "consideracoes_tags": "Verifique a lista de tags e alertas do GTM para garantir o correto rastreamento de conversão.",
         "consideracoes_conversao": "Verifique a tabela de formulários e a existência de Thank You Page para alinhar o disparo de eventos no CRM."
