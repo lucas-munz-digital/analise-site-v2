@@ -1,70 +1,83 @@
 """
-Gera o PDF final do relatório contendo a análise do Gemini.
+Gera o PDF do relatório no formato Deck de Slides Widescreen 16:9 
+seguindo a nova identidade visual dark/minimalista da Agência Mestre.
 """
-from reportlab.lib.pagesizes import A4
+import os
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import cm
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_LEFT
+from reportlab.lib.enums import TA_LEFT, TA_CENTER
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image
 )
 from reportlab.lib import colors
 from datetime import datetime
 
-RED = colors.HexColor("#E03131")
-YELLOW = colors.HexColor("#F5B800")
-GRAY = colors.HexColor("#4A4A48")
-DARK = colors.HexColor("#1A1A1A")
-GREEN = colors.HexColor("#2F9E44")
-BLUE_BG = colors.HexColor("#E7F5FF")
-BLUE_TEXT = colors.HexColor("#1864AB")
+# Nova Paleta Mestre Dark Mode
+BG_DARK = colors.HexColor("#121212")
+CARD_BG = colors.HexColor("#1E1E1E")
+CARD_LIGHT = colors.HexColor("#292929")
+TEXT_WHITE = colors.HexColor("#FFFFFF")
+TEXT_MUTED = colors.HexColor("#A0A0A0")
+ACCENT_BLUE = colors.HexColor("#3B82F6")
+ACCENT_RED = colors.HexColor("#EF4444")
+ACCENT_YELLOW = colors.HexColor("#F59E0B")
+ACCENT_GREEN = colors.HexColor("#10B981")
 
 STYLES = getSampleStyleSheet()
-STYLES.add(ParagraphStyle("H1c", parent=STYLES["Heading1"], fontSize=20, textColor=DARK, spaceAfter=4))
-STYLES.add(ParagraphStyle("H2c", parent=STYLES["Heading2"], fontSize=14, textColor=DARK, spaceBefore=10, spaceAfter=6))
-STYLES.add(ParagraphStyle("Body", parent=STYLES["Normal"], fontSize=10.5, leading=15, textColor=DARK, alignment=TA_LEFT))
-STYLES.add(ParagraphStyle("Small", parent=STYLES["Normal"], fontSize=9, leading=13, textColor=GRAY))
-STYLES.add(ParagraphStyle("Tag", parent=STYLES["Normal"], fontSize=9, textColor=colors.white))
-STYLES.add(ParagraphStyle("AIBody", parent=STYLES["Normal"], fontSize=9.5, leading=14, textColor=BLUE_TEXT))
+
+# Estilos Customizados para Widescreen
+STYLES.add(ParagraphStyle("DeckTitle", parent=STYLES["Normal"], fontSize=28, leading=34, textColor=TEXT_WHITE, fontName="Helvetica-Bold"))
+STYLES.add(ParagraphStyle("DeckSubTitle", parent=STYLES["Normal"], fontSize=16, leading=22, textColor=TEXT_MUTED))
+STYLES.add(ParagraphStyle("SlideHeader", parent=STYLES["Normal"], fontSize=18, leading=22, textColor=TEXT_WHITE, fontName="Helvetica-Bold"))
+STYLES.add(ParagraphStyle("SlideSubHeader", parent=STYLES["Normal"], fontSize=11, leading=15, textColor=TEXT_MUTED))
+STYLES.add(ParagraphStyle("CardTitle", parent=STYLES["Normal"], fontSize=12, leading=16, textColor=TEXT_WHITE, fontName="Helvetica-Bold"))
+STYLES.add(ParagraphStyle("CardBody", parent=STYLES["Normal"], fontSize=10, leading=14, textColor=TEXT_MUTED))
+STYLES.add(ParagraphStyle("CardBodyWhite", parent=STYLES["Normal"], fontSize=10, leading=14, textColor=TEXT_WHITE))
+STYLES.add(ParagraphStyle("ScoreVal", parent=STYLES["Normal"], fontSize=24, leading=28, textColor=TEXT_WHITE, fontName="Helvetica-Bold", alignment=TA_CENTER))
+STYLES.add(ParagraphStyle("ScoreLbl", parent=STYLES["Normal"], fontSize=9, leading=12, textColor=TEXT_MUTED, alignment=TA_CENTER))
 
 
-def _severity_color(sev):
-    return {"critico": RED, "medio": YELLOW, "baixo": colors.HexColor("#868E96")}.get(sev, GRAY)
+def draw_slide_background(canvas, doc):
+    """Desenha o fundo escuro do slide e a logo no cabeçalho/rodapé."""
+    canvas.saveState()
+    canvas.setFillColor(BG_DARK)
+    canvas.rect(0, 0, doc.pagesize[0], doc.pagesize[1], fill=1, stroke=0)
+    
+    # Desenha a Logo Mestre no canto superior direito caso o arquivo exista
+    if os.path.exists("logo_mestre.png"):
+        canvas.drawImage("logo_mestre.png", doc.pagesize[0] - 3.5 * cm, doc.pagesize[1] - 1.5 * cm, width=2.5 * cm, preserveAspectRatio=True, mask='auto')
+    
+    # Linha decorativa de rodapé
+    canvas.setStrokeColor(CARD_BG)
+    canvas.setLineWidth(1)
+    canvas.line(1.5 * cm, 1.2 * cm, doc.pagesize[0] - 1.5 * cm, 1.2 * cm)
+    
+    canvas.setFillColor(TEXT_MUTED)
+    canvas.setFont("Helvetica", 8)
+    canvas.drawString(1.5 * cm, 0.7 * cm, "Agência Mestre | Análise Técnica do Site para Mídia")
+    canvas.drawRightString(doc.pagesize[0] - 1.5 * cm, 0.7 * cm, f"Slide {doc.page}")
+    canvas.restoreState()
 
 
-def _severity_label(sev):
-    return {"critico": "ATENÇÃO IMEDIATA", "medio": "MÉDIO/LONGO PRAZO", "baixo": "OBSERVAÇÃO"}.get(sev, "")
-
-
-def _issue_block(title, sev, text):
-    color = _severity_color(sev)
-    tag = Table([[Paragraph(f"<b>{_severity_label(sev)}</b>", STYLES["Tag"])]], colWidths=[4.5 * cm])
-    tag.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), color),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-    ]))
-    return [
-        tag,
-        Spacer(1, 4),
-        Paragraph(f"<b>{title}</b>", STYLES["H2c"]),
-        Paragraph(text, STYLES["Body"]),
-        Spacer(1, 10),
-    ]
-
-
-def _ai_box(title, text):
-    t = Table([[Paragraph(f"<b>{title}</b><br/>{text}", STYLES["AIBody"])]], colWidths=[16 * cm])
+def _make_card(title, body, bg_color=CARD_BG, width=25*cm):
+    """Cria um card em bloco estilo o modelo de apresentações da Mestre."""
+    content = []
+    if title:
+        content.append(Paragraph(f"<b>{title}</b>", STYLES["CardTitle"]))
+        content.append(Spacer(1, 4))
+    content.append(Paragraph(body, STYLES["CardBodyWhite"]))
+    
+    t = Table([[content]], colWidths=[width])
     t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), BLUE_BG),
-        ("LINELEFT", (0, 0), (-1, -1), 3, colors.HexColor("#1C7ED6")),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("BACKGROUND", (0, 0), (-1, -1), bg_color),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
     ]))
-    return [t, Spacer(1, 10)]
+    return t
 
 
 def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
@@ -74,100 +87,132 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
 
     ai = ai_insights or {}
 
-    doc = SimpleDocTemplate(output_path, pagesize=A4,
-                             topMargin=2 * cm, bottomMargin=2 * cm,
-                             leftMargin=2 * cm, rightMargin=2 * cm)
+    # Define documento na orientação LANDSCAPE (16:9 Widescreen)
+    doc = SimpleDocTemplate(
+        output_path, 
+        pagesize=landscape(A4),
+        topMargin=1.8 * cm, 
+        bottomMargin=1.8 * cm,
+        leftMargin=1.5 * cm, 
+        rightMargin=1.5 * cm
+    )
     story = []
 
-    # Capa
-    story.append(Spacer(1, 4 * cm))
-    story.append(Paragraph("Análise Técnica do Site", STYLES["H1c"]))
-    story.append(Paragraph(cliente, ParagraphStyle("sub", parent=STYLES["Body"], fontSize=14, textColor=GRAY)))
-    story.append(Spacer(1, 0.5 * cm))
-    story.append(Paragraph(url, STYLES["Small"]))
-    story.append(Paragraph(datetime.now().strftime("Gerado em %d/%m/%Y às %H:%M"), STYLES["Small"]))
+    # =========================================================================
+    # SLIDE 1: Capa da Apresentação
+    # =========================================================================
+    story.append(Spacer(1, 2 * cm))
+    if os.path.exists("logo_mestre.png"):
+        story.append(Image("logo_mestre.png", width=5 * cm, height=2 * cm, kind='proportional'))
+        story.append(Spacer(1, 1 * cm))
+    
+    story.append(Paragraph("Análise do Site para Mídia", STYLES["DeckTitle"]))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph(f"Projeto: <b>{cliente}</b>", STYLES["DeckSubTitle"]))
+    story.append(Paragraph(f"URL: {url}", STYLES["CardBody"]))
+    story.append(Spacer(1, 1 * cm))
+    story.append(Paragraph(datetime.now().strftime("Gerado em %d/%m/%Y"), STYLES["CardBody"]))
     story.append(PageBreak())
 
-    # Parecer Executivo da IA na 1ª Página
-    if ai.get("resumo_executivo"):
-        story.extend(_ai_box("Parecer Executivo (Análise por IA)", ai["resumo_executivo"]))
+    # =========================================================================
+    # SLIDE 2: Parecer Executivo (Análise por IA)
+    # =========================================================================
+    story.append(Paragraph("01 | PARECER EXECUTIVO", STYLES["SlideSubHeader"]))
+    story.append(Paragraph("Diagnóstico Geral de Mídia & Prontidão do Site", STYLES["SlideHeader"]))
+    story.append(Spacer(1, 12))
 
-    # PageSpeed
-    for label, data in [("Mobile", pagespeed_mobile), ("Desktop", pagespeed_desktop)]:
-        story.append(Paragraph(f"Desempenho do Site — {label}", STYLES["H2c"]))
-        if "error" in data:
-            story.append(Paragraph(f"Não foi possível obter os dados: {data['error']}", STYLES["Body"]))
-        else:
-            interp = data.get("interpretation", {})
-            if interp.get("level") == "red":
-                story.extend(_issue_block("Atenção no Desempenho", "critico", interp["text"]))
-            elif interp.get("level") == "orange":
-                story.extend(_issue_block("Oportunidade de Melhoria", "medio", interp["text"]))
-
-            if data["opportunities"]:
-                story.append(Paragraph("<b>Principais oportunidades de melhoria:</b>", STYLES["Body"]))
-                for opp in data["opportunities"]:
-                    saving = f" (economia estimada de {round(opp['savings_ms']/1000, 1)}s)" if opp["savings_ms"] else ""
-                    story.append(Paragraph(f"• {opp['title']}{saving}", STYLES["Small"]))
-        story.append(Spacer(1, 10))
-
-    if ai.get("consideracoes_desempenho"):
-        story.extend(_ai_box("Diagnóstico de Mídia & CPC", ai["consideracoes_desempenho"]))
-
-    story.append(PageBreak())
-
-    # Tags
-    story.append(Paragraph("Tags e Scripts de Rastreamento", STYLES["H2c"]))
-    if ai.get("consideracoes_tags"):
-        story.extend(_ai_box("Diagnóstico de Tracking", ai["consideracoes_tags"]))
-
-    rows = [
-        ["GTM", ", ".join(tags["gtm_containers"]) or "não encontrado"],
-        ["GA4", ", ".join(tags["ga4_properties"]) or "não encontrado"],
-        ["Google Ads", ", ".join(tags["google_ads_ids"]) or "não encontrado"],
-        ["Meta Pixel", ", ".join(tags["meta_pixel_ids"]) or "não encontrado"],
-    ]
-    tt = Table(rows, colWidths=[4 * cm, 12 * cm])
-    tt.setStyle(TableStyle([
-        ("FONTSIZE", (0, 0), (-1, -1), 9.5),
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("LINEBELOW", (0, 0), (-1, -2), 0.5, colors.HexColor("#EEEEEE")),
-    ]))
-    story.append(tt)
+    resumo = ai.get("resumo_executivo", "Análise executiva não disponível no momento.")
+    story.append(_make_card("Visão Geral do Consultor Sênior", resumo, bg_color=CARD_BG, width=25*cm))
     story.append(Spacer(1, 10))
 
-    # Formulários
-    story.append(Paragraph("Formulários e Conversão", STYLES["H2c"]))
-    if ai.get("consideracoes_conversao"):
-        story.extend(_ai_box("Diagnóstico de Conversão", ai["consideracoes_conversao"]))
+    # Grid de destaques rápidos
+    c1 = _make_card("Objetivo do Documento", "Detectar oportunidades de melhoria técnica e de CRO na Landing Page para maximizar o ROI e o Índice de Qualidade das campanhas de tráfego pago.", CARD_LIGHT, width=12*cm)
+    c2 = _make_card("Legenda de Urgência", "🔴 <b>Atenção Imediata:</b> Impacta diretamente os resultados/conversões.<br/>🟡 <b>Médio/Longo Prazo:</b> Oportunidades para otimização contínua.", CARD_LIGHT, width=12.5*cm)
+    
+    grid_table = Table([[c1, c2]], colWidths=[12.3*cm, 12.7*cm])
+    grid_table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    story.append(grid_table)
+    story.append(PageBreak())
 
-    if not forms_data["forms"]:
-        story.append(Paragraph("Nenhum formulário estático ou script de automação foi encontrado no HTML base da página.", STYLES["Body"]))
+    # =========================================================================
+    # SLIDE 3: Desempenho & Core Web Vitals (Mobile e Desktop)
+    # =========================================================================
+    story.append(Paragraph("02 | PERFORMANCE & CORE WEB VITALS", STYLES["SlideSubHeader"]))
+    story.append(Paragraph("Desempenho do Site e Impacto no Custo por Clique (CPC)", STYLES["SlideHeader"]))
+    story.append(Spacer(1, 10))
+
+    score_m = pagespeed_mobile.get("scores", {}).get("performance", "-")
+    score_d = pagespeed_desktop.get("scores", {}).get("performance", "-")
+
+    # Score Cards
+    sc_m = Table([[Paragraph(f"<b>{score_m}</b>", STYLES["ScoreVal"])], [Paragraph("Mobile Score", STYLES["ScoreLbl"])]], colWidths=[5*cm])
+    sc_m.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), CARD_BG), ("PADDING", (0, 0), (-1, -1), 6)]))
+
+    sc_d = Table([[Paragraph(f"<b>{score_d}</b>", STYLES["ScoreVal"])], [Paragraph("Desktop Score", STYLES["ScoreLbl"])]], colWidths=[5*cm])
+    sc_d.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), CARD_BG), ("PADDING", (0, 0), (-1, -1), 6)]))
+
+    perf_ai = ai.get("consideracoes_desempenho", "Consulte os números abaixo.")
+    card_perf = _make_card("Impacto na Mídia Paga & Rejeição", perf_ai, CARD_BG, width=14.5*cm)
+
+    scores_row = Table([[sc_m, sc_d, card_perf]], colWidths=[5.2*cm, 5.2*cm, 14.6*cm])
+    scores_row.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    story.append(scores_row)
+    story.append(Spacer(1, 10))
+
+    # Oportunidades Mobile
+    opps = pagespeed_mobile.get("opportunities", [])
+    opp_text = "<br/>".join([f"• <b>{o['title']}</b>" for o in opps[:4]]) if opps else "Sem grandes oportunidades detectadas."
+    story.append(_make_card("Principais Gargalos Detectados no Mobile", opp_text, CARD_LIGHT, width=25*cm))
+    story.append(PageBreak())
+
+    # =========================================================================
+    # SLIDE 4: Infraestrutura de Tracking (GTM, GA4, Ads, Pixel)
+    # =========================================================================
+    story.append(Paragraph("03 | MENSURAÇÃO & TRACKING", STYLES["SlideSubHeader"]))
+    story.append(Paragraph("Auditoria do Ecossistema de Rastreamento de Tags", STYLES["SlideHeader"]))
+    story.append(Spacer(1, 10))
+
+    tags_ai = ai.get("consideracoes_tags", "Consulte a tabela abaixo.")
+    story.append(_make_card("Diagnóstico de Tracking pelo Especialista", tags_ai, CARD_BG, width=25*cm))
+    story.append(Spacer(1, 10))
+
+    # Tabela de Tags
+    tag_rows = [
+        [Paragraph("<b>Ferramenta</b>", STYLES["CardTitle"]), Paragraph("<b>IDs Identificados</b>", STYLES["CardTitle"])],
+        [Paragraph("Google Tag Manager (GTM)", STYLES["CardBodyWhite"]), Paragraph(", ".join(tags.get("gtm_containers", [])) or "Não encontrado 🔴", STYLES["CardBodyWhite"])],
+        [Paragraph("Google Analytics 4 (GA4)", STYLES["CardBodyWhite"]), Paragraph(", ".join(tags.get("ga4_properties", [])) or "Não encontrado 🔴", STYLES["CardBodyWhite"])],
+        [Paragraph("Google Ads", STYLES["CardBodyWhite"]), Paragraph(", ".join(tags.get("google_ads_ids", [])) or "Não encontrado 🔴", STYLES["CardBodyWhite"])],
+        [Paragraph("Meta Pixel", STYLES["CardBodyWhite"]), Paragraph(", ".join(tags.get("meta_pixel_ids", [])) or "Não encontrado 🔴", STYLES["CardBodyWhite"])]
+    ]
+    t_tags = Table(tag_rows, colWidths=[8*cm, 17*cm])
+    t_tags.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), CARD_LIGHT),
+        ("BACKGROUND", (0, 1), (-1, -1), CARD_BG),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#333333")),
+        ("PADDING", (0, 0), (-1, -1), 8),
+    ]))
+    story.append(t_tags)
+    story.append(PageBreak())
+
+    # =========================================================================
+    # SLIDE 5: Conversão & Formulários (CRO)
+    # =========================================================================
+    story.append(Paragraph("04 | CONVERSÃO & CRO", STYLES["SlideSubHeader"]))
+    story.append(Paragraph("Mapeamento de Captura de Leads e Thank You Pages", STYLES["SlideHeader"]))
+    story.append(Spacer(1, 10))
+
+    conv_ai = ai.get("consideracoes_conversao", "Consulte os formulários abaixo.")
+    story.append(_make_card("Parecer de Conversão & UX", conv_ai, CARD_BG, width=25*cm))
+    story.append(Spacer(1, 10))
+
+    forms = forms_data.get("forms", [])
+    if not forms:
+        story.append(_make_card("Alertas de Formulários", "Nenhum formulário HTML estático ou script de automação (RD Station/HubSpot) foi detectado no HTML base.", CARD_LIGHT, width=25*cm))
     else:
-        for f in forms_data["forms"]:
-            tipo_label = f.get("tipo", "Formulário")
-            story.append(Paragraph(f"<b>Formulário #{f['id']} ({tipo_label})</b> — {f['num_campos']} campo(s): {', '.join(f['fields']) or '-'}", STYLES["Body"]))
-            story.append(Paragraph(f"Destino: {f['destino']} → <font size=8>{f['action']}</font>", STYLES["Small"]))
-            
-            if not f.get("has_thank_you_page"):
-                story.extend(_issue_block(
-                    f"Formulário #{f['id']} sem Página de Agradecimento",
-                    "medio",
-                    f"Página de agradecimento não encontrada no formulário #{f['id']}. Isto não impossibilita o tracking do formulário, porém implica na criação de soluções que estão sujeitas a maior taxa de erro de contabilização. (form_submit, click_text, etc)"
-                ))
-            story.append(Spacer(1, 8))
+        for f in forms[:2]:
+            ty_status = "✅ Página de Agradecimento Identificada" if f.get("has_thank_you_page") else "🔴 Sem Página de Agradecimento (Página de Sucesso/Popup)"
+            f_body = f"<b>Tipo:</b> {f.get('tipo')} | <b>Destino:</b> {f.get('destino')}<br/><b>Status de Tracking:</b> {ty_status}"
+            story.append(_make_card(f"Formulário #{f['id']}", f_body, CARD_LIGHT, width=25*cm))
+            story.append(Spacer(1, 6))
 
-    # Links Quebrados
-    if broken_links:
-        story.append(Paragraph("Links Quebrados Detectados", STYLES["H2c"]))
-        for bl in broken_links:
-            story.extend(_issue_block("Link Indisponível", "critico", f"URL quebrada ({bl['status']}): {bl['url']}"))
-
-    # Usabilidade
-    story.append(Paragraph("Usabilidade e Design (checagem automática)", STYLES["H2c"]))
-    for sev, text in usability_issues:
-        story.extend(_issue_block("Achado", sev, text))
-
-    doc.build(story)
+    doc.build(story, onFirstPage=draw_slide_background, onLaterPages=draw_slide_background)
