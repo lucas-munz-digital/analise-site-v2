@@ -1,6 +1,7 @@
 """
 Gera o PDF do relatório no formato Deck de Slides Widescreen 16:9 
 seguindo a nova identidade visual dark/minimalista da Agência Mestre.
+Aplica categorização de urgência (Vermelho x Amarelo) em cada bloco de análise.
 """
 import os
 from reportlab.lib.pagesizes import A4, landscape
@@ -13,13 +14,15 @@ from reportlab.platypus import (
 from reportlab.lib import colors
 from datetime import datetime
 
-# Paleta Mestre Dark Mode
 BG_DARK = colors.HexColor("#121212")
 CARD_BG = colors.HexColor("#1E1E1E")
 CARD_LIGHT = colors.HexColor("#292929")
 TEXT_WHITE = colors.HexColor("#FFFFFF")
 TEXT_MUTED = colors.HexColor("#A0A0A0")
-ACCENT_BLUE = colors.HexColor("#3B82F6")
+
+# Cores de Urgência Mestre
+COLOR_RED = colors.HexColor("#EF4444")
+COLOR_YELLOW = colors.HexColor("#F59E0B")
 
 STYLES = getSampleStyleSheet()
 
@@ -39,13 +42,11 @@ POSSIBLE_LOGOS = [
 
 
 def draw_slide_background(canvas, doc):
-    """Desenha o fundo escuro do slide e a logo no cabeçalho/rodapé."""
     canvas.saveState()
     canvas.setFillColor(BG_DARK)
     canvas.rect(0, 0, doc.pagesize[0], doc.pagesize[1], fill=1, stroke=0)
     
     logo_file = next((f for f in POSSIBLE_LOGOS if os.path.exists(f)), None)
-    
     if logo_file:
         canvas.drawImage(logo_file, doc.pagesize[0] - 2.8 * cm, doc.pagesize[1] - 1.8 * cm, width=1.6 * cm, height=1.6 * cm, preserveAspectRatio=True)
     
@@ -60,16 +61,28 @@ def draw_slide_background(canvas, doc):
     canvas.restoreState()
 
 
-def _make_card(title, body, bg_color=CARD_BG, width=25*cm):
+def _make_card(title, body, status=None, bg_color=CARD_BG, width=25*cm):
     content = []
-    if title:
-        content.append(Paragraph(f"<b>{title}</b>", STYLES["CardTitle"]))
-        content.append(Spacer(1, 4))
+    
+    # Adiciona a tag visual Amarelo/Vermelho
+    if status == "vermelho":
+        badge = "<font color='#EF4444'><b>[🔴 ATENÇÃO IMEDIATA - IMPACTA ANÚNCIOS]</b></font>"
+    elif status == "amarelo":
+        badge = "<font color='#F59E0B'><b>[🟡 MÉDIO PRAZO - OPORTUNIDADE DE MELHORIA]</b></font>"
+    else:
+        badge = ""
+
+    header_text = f"<b>{title}</b> {badge}".strip()
+    content.append(Paragraph(header_text, STYLES["CardTitle"]))
+    content.append(Spacer(1, 4))
     content.append(Paragraph(body, STYLES["CardBodyWhite"]))
     
+    border_color = COLOR_RED if status == "vermelho" else (COLOR_YELLOW if status == "amarelo" else bg_color)
+
     t = Table([[content]], colWidths=[width])
     t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), bg_color),
+        ("LINELEFT", (0, 0), (0, -1), 4, border_color),
         ("TOPPADDING", (0, 0), (-1, -1), 10),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
         ("LEFTPADDING", (0, 0), (-1, -1), 12),
@@ -117,12 +130,12 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
     story.append(Paragraph("Diagnóstico Geral de Mídia & Prontidão do Site", STYLES["SlideHeader"]))
     story.append(Spacer(1, 12))
 
-    resumo = ai.get("resumo_executivo", "Análise executiva não disponível no momento.")
+    resumo = ai.get("resumo_executivo", "Análise executiva não disponível.")
     story.append(_make_card("Visão Geral do Consultor Sênior", resumo, bg_color=CARD_BG, width=25*cm))
     story.append(Spacer(1, 10))
 
-    c1 = _make_card("Objetivo do Documento", "Detectar oportunidades de melhoria técnica e de CRO na Landing Page para maximizar o ROI e o Índice de Qualidade das campanhas de tráfego pago.", CARD_LIGHT, width=12*cm)
-    c2 = _make_card("Legenda de Urgência", "🔴 <b>Atenção Imediata:</b> Impacta diretamente os resultados/conversões.<br/>🟡 <b>Médio/Longo Prazo:</b> Oportunidades para otimização contínua.", CARD_LIGHT, width=12.5*cm)
+    c1 = _make_card("Objetivo do Documento", "Detectar oportunidades no site para maximizar o ROI e o Índice de Qualidade das campanhas.", CARD_LIGHT, width=12*cm)
+    c2 = _make_card("Legenda de Urgência", "🔴 <b>Atenção Imediata:</b> Impacta diretamente os resultados/anúncios.<br/>🟡 <b>Médio/Longo Prazo:</b> Oportunidades para otimização contínua.", CARD_LIGHT, width=12.5*cm)
     
     grid_table = Table([[c1, c2]], colWidths=[12.3*cm, 12.7*cm])
     grid_table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
@@ -144,7 +157,8 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
     sc_d.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), CARD_BG), ("PADDING", (0, 0), (-1, -1), 6)]))
 
     perf_ai = ai.get("consideracoes_desempenho", "Consulte os números abaixo.")
-    card_perf = _make_card("Impacto na Mídia Paga & Rejeição", perf_ai, CARD_BG, width=14.5*cm)
+    perf_status = ai.get("status_desempenho", "vermelho")
+    card_perf = _make_card("Impacto na Mídia Paga & Rejeição", perf_ai, status=perf_status, bg_color=CARD_BG, width=14.5*cm)
 
     scores_row = Table([[sc_m, sc_d, card_perf]], colWidths=[5.2*cm, 5.2*cm, 14.6*cm])
     scores_row.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
@@ -153,7 +167,7 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
 
     opps = pagespeed_mobile.get("opportunities", [])
     opp_text = "<br/>".join([f"• <b>{o['title']}</b>" for o in opps[:4]]) if opps else "Sem grandes oportunidades detectadas."
-    story.append(_make_card("Principais Gargalos Detectados no Mobile", opp_text, CARD_LIGHT, width=25*cm))
+    story.append(_make_card("Principais Gargalos Detectados no Mobile", opp_text, status="vermelho" if score_m < 50 else "amarelo", bg_color=CARD_LIGHT, width=25*cm))
     story.append(PageBreak())
 
     # SLIDE 4: Tracking
@@ -162,7 +176,8 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
     story.append(Spacer(1, 10))
 
     tags_ai = ai.get("consideracoes_tags", "Consulte a tabela abaixo.")
-    story.append(_make_card("Diagnóstico de Tracking pelo Especialista", tags_ai, CARD_BG, width=25*cm))
+    tags_status = ai.get("status_tags", "amarelo")
+    story.append(_make_card("Diagnóstico de Tracking pelo Especialista", tags_ai, status=tags_status, bg_color=CARD_BG, width=25*cm))
     story.append(Spacer(1, 10))
 
     tag_rows = [
@@ -188,17 +203,18 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
     story.append(Spacer(1, 10))
 
     conv_ai = ai.get("consideracoes_conversao", "Consulte os formulários abaixo.")
-    story.append(_make_card("Parecer de Conversão & UX", conv_ai, CARD_BG, width=25*cm))
+    conv_status = ai.get("status_conversao", "vermelho")
+    story.append(_make_card("Parecer de Conversão & UX", conv_ai, status=conv_status, bg_color=CARD_BG, width=25*cm))
     story.append(Spacer(1, 10))
 
     forms = forms_data.get("forms", [])
     if not forms:
-        story.append(_make_card("Alertas de Formulários", "Nenhum formulário HTML estático ou script de automação (RD Station/HubSpot) foi detectado no HTML base.", CARD_LIGHT, width=25*cm))
+        story.append(_make_card("Alertas de Formulários", "Nenhum formulário HTML estático ou script de automação (RD Station) foi detectado.", status="vermelho", bg_color=CARD_LIGHT, width=25*cm))
     else:
-        for f in forms[:2]:
+        for f in forms[:3]:
             ty_status = "✅ Página de Agradecimento Identificada" if f.get("has_thank_you_page") else "🔴 Sem Página de Agradecimento (Página de Sucesso/Popup)"
             f_body = f"<b>Tipo:</b> {f.get('tipo')} | <b>Destino:</b> {f.get('destino')}<br/><b>Status de Tracking:</b> {ty_status}"
-            story.append(_make_card(f"Formulário #{f['id']}", f_body, CARD_LIGHT, width=25*cm))
+            story.append(_make_card(f"Formulário #{f['id']}", f_body, status="amarelo" if f.get("has_thank_you_page") else "vermelho", bg_color=CARD_LIGHT, width=25*cm))
             story.append(Spacer(1, 6))
 
     doc.build(story, onFirstPage=draw_slide_background, onLaterPages=draw_slide_background)
