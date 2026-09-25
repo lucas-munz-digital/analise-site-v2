@@ -11,23 +11,18 @@ from google.genai import types
 
 DEFAULT_GEMINI_API_KEY = "AIzaSyBuvA0OE36shPYEkoGY886S-Lii6Tb8INk"
 
-# Modelos homologados para tentativa em sequência
 MODELS_TO_TRY = [
     'gemini-3.8-flash',
     'gemini-3-flash',
     'gemini-2.5-flash'
 ]
 
-
 def generate_ai_insights(cliente: str, url: str, pagespeed_mobile: dict, 
                          pagespeed_desktop: dict, tags: dict, 
                          forms_data: dict, usability_issues: list, 
                          broken_links: list = None, page_context: dict = None,
                          api_key: str = None) -> dict:
-    """
-    Combina as métricas técnicas e o contexto comercial da página para gerar
-    análises estratégicas profundas através do Gemini.
-    """
+
     gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or DEFAULT_GEMINI_API_KEY
 
     try:
@@ -49,13 +44,7 @@ def generate_ai_insights(cliente: str, url: str, pagespeed_mobile: dict,
             "vitals": pagespeed_desktop.get("vitals", {}),
             "oportunidades": [o.get("title") for o in pagespeed_desktop.get("opportunities", [])]
         },
-        "tags_rastreamento": {
-            "gtm": tags.get("gtm_containers"),
-            "ga4": tags.get("ga4_properties"),
-            "google_ads": tags.get("google_ads_ids"),
-            "meta_pixel": tags.get("meta_pixel_ids"),
-            "alertas": tags.get("issues", [])
-        },
+        "tags_rastreamento": tags,
         "formularios_e_conversao": forms_data.get("forms", []),
         "links_quebrados": [bl.get("url") for bl in (broken_links or [])],
         "usabilidade_heuristica": [u[1] for u in usability_issues]
@@ -90,7 +79,6 @@ DIRETRIZES DE RESPOSTA (Gere ESTRITAMENTE um objeto JSON com estas chaves):
 
     last_exception = None
 
-    # Tenta enviar a requisição alternando modelos e aguardando em caso de erro 503
     for model_name in MODELS_TO_TRY:
         for attempt in range(2):
             try:
@@ -106,7 +94,6 @@ DIRETRIZES DE RESPOSTA (Gere ESTRITAMENTE um objeto JSON com estas chaves):
                     return json.loads(response.text)
             except Exception as e:
                 last_exception = e
-                # Aguarda tempo progressivo para o servidor do Google liberar o processamento
                 time.sleep(2 * (attempt + 1))
 
     return _fallback_response(str(last_exception))
