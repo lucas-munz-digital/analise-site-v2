@@ -64,7 +64,6 @@ def draw_slide_background(canvas, doc):
 def _make_card(title, body, status=None, bg_color=CARD_BG, width=25*cm):
     content = []
     
-    # Adiciona a tag visual Amarelo/Vermelho
     if status == "vermelho":
         badge = "<font color='#EF4444'><b>[🔴 ATENÇÃO IMEDIATA - IMPACTA ANÚNCIOS]</b></font>"
     elif status == "amarelo":
@@ -147,13 +146,19 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
     story.append(Paragraph("Desempenho do Site e Impacto no Custo por Clique (CPC)", STYLES["SlideHeader"]))
     story.append(Spacer(1, 10))
 
-    score_m = pagespeed_mobile.get("scores", {}).get("performance", "-")
-    score_d = pagespeed_desktop.get("scores", {}).get("performance", "-")
+    raw_score_m = pagespeed_mobile.get("scores", {}).get("performance", "-")
+    raw_score_d = pagespeed_desktop.get("scores", {}).get("performance", "-")
 
-    sc_m = Table([[Paragraph(f"<b>{score_m}</b>", STYLES["ScoreVal"])], [Paragraph("Mobile Score", STYLES["ScoreLbl"])]], colWidths=[5*cm])
+    # Tratamento seguro do score para comparação numérica
+    try:
+        score_m_val = int(raw_score_m)
+    except (ValueError, TypeError):
+        score_m_val = 0
+
+    sc_m = Table([[Paragraph(f"<b>{raw_score_m}</b>", STYLES["ScoreVal"])], [Paragraph("Mobile Score", STYLES["ScoreLbl"])]], colWidths=[5*cm])
     sc_m.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), CARD_BG), ("PADDING", (0, 0), (-1, -1), 6)]))
 
-    sc_d = Table([[Paragraph(f"<b>{score_d}</b>", STYLES["ScoreVal"])], [Paragraph("Desktop Score", STYLES["ScoreLbl"])]], colWidths=[5*cm])
+    sc_d = Table([[Paragraph(f"<b>{raw_score_d}</b>", STYLES["ScoreVal"])], [Paragraph("Desktop Score", STYLES["ScoreLbl"])]], colWidths=[5*cm])
     sc_d.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), CARD_BG), ("PADDING", (0, 0), (-1, -1), 6)]))
 
     perf_ai = ai.get("consideracoes_desempenho", "Consulte os números abaixo.")
@@ -167,7 +172,7 @@ def build_pdf(output_path: str, cliente: str, url: str, is_ecommerce: bool,
 
     opps = pagespeed_mobile.get("opportunities", [])
     opp_text = "<br/>".join([f"• <b>{o['title']}</b>" for o in opps[:4]]) if opps else "Sem grandes oportunidades detectadas."
-    story.append(_make_card("Principais Gargalos Detectados no Mobile", opp_text, status="vermelho" if score_m < 50 else "amarelo", bg_color=CARD_LIGHT, width=25*cm))
+    story.append(_make_card("Principais Gargalos Detectados no Mobile", opp_text, status="vermelho" if score_m_val < 50 else "amarelo", bg_color=CARD_LIGHT, width=25*cm))
     story.append(PageBreak())
 
     # SLIDE 4: Tracking
